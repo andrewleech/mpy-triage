@@ -1,0 +1,10 @@
+{
+  "name": "mpy-triage",
+  "version": "0.1.0",
+  "description": "MicroPython issue/PR triage - duplicate and related item detection",
+  "author": {
+    "name": "Andrew Leech"
+  },
+  "keywords": ["micropython", "triage", "duplicate-detection", "rag"],
+  "skills": "./skills/"
+}

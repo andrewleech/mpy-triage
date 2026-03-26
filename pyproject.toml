@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mpy-triage"
+version = "0.1.0"
+description = "MicroPython issue/PR triage - duplicate and related item detection"
+readme = "MPY_TRIAGE_SPEC.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "Andrew Leech"}
+]
+
+dependencies = [
+    "sqlite-vec>=0.1.6",
+    "sentence-transformers>=2.7.0",
+    "click>=8.0.0",
+    "tqdm>=4.65.0",
+    "numpy>=1.24.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21",
+    "pytest-cov>=4.0",
+    "ruff>=0.4.0",
+]
+
+[project.scripts]
+mpy-triage = "mpy_triage.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["mpy_triage*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 99
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+
