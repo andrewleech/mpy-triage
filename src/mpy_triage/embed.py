@@ -21,6 +21,11 @@ class Embedder:
         self._config = config or get_config().embedding
         self._model = None
 
+    @property
+    def config(self) -> EmbeddingConfig:
+        """Public access to embedding configuration."""
+        return self._config
+
     def _load_model(self) -> None:
         """Lazy load the SentenceTransformer model."""
         if self._model is not None:
@@ -215,5 +220,5 @@ def rebuild_index(conn: sqlite3.Connection, embedder: Embedder) -> int:
     conn.execute("DROP TABLE IF EXISTS item_fts")
     conn.commit()
 
-    build_index(conn, embedder._config)
+    build_index(conn, embedder.config)
     return index_all(conn, embedder)

@@ -2,13 +2,12 @@
 
 import json
 import logging
-import os
 import sqlite3
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from .config import get_config
+from .config import clean_env, get_config
 
 logger = logging.getLogger(__name__)
 
@@ -40,11 +39,6 @@ class Assessment:
     confidence: str  # high, medium, low
     reasoning: str
     suggested_action: str
-
-
-def _clean_env() -> dict:
-    """Copy os.environ, removing keys starting with CLAUDECODE to prevent recursion."""
-    return {k: v for k, v in os.environ.items() if not k.startswith("CLAUDECODE")}
 
 
 def _get_json_schema() -> str:
@@ -147,6 +141,8 @@ def assess_candidates(
 
         cand_text = _fetch_item_text(conn, candidate)
         user_prompt = _build_comparison_prompt(query_text, cand_text)
+        # Note: claude -p reads stdin as user prompt; system prompt is included
+        # in the same input since there is no --system-prompt flag.
         full_prompt = f"{system_prompt}\n\n{user_prompt}"
 
         cmd = [
@@ -170,7 +166,7 @@ def assess_candidates(
                 capture_output=True,
                 text=True,
                 timeout=TIMEOUT_SECONDS,
-                env=_clean_env(),
+                env=clean_env(),
             )
             if result.returncode != 0:
                 logger.warning(

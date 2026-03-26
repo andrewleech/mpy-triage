@@ -11,7 +11,9 @@ import subprocess
 import time
 from urllib.parse import quote
 
-log = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
+
+GH_API_TIMEOUT = 120  # seconds
 
 # Rate limiting: 5000 requests/hour for authenticated users.
 REQUESTS_PER_HOUR = 5000
@@ -53,7 +55,13 @@ def gh_api(
         if elapsed < REQUEST_DELAY:
             time.sleep(REQUEST_DELAY - elapsed)
 
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        try:
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=GH_API_TIMEOUT
+            )
+        except subprocess.TimeoutExpired:
+            logger.warning("gh api timed out after %ds: %s", GH_API_TIMEOUT, endpoint)
+            return None
         _last_request_time = time.time()
 
         if result.returncode != 0:
@@ -63,10 +71,10 @@ def gh_api(
                 reset_ts = _parse_rate_limit_reset(stderr)
                 if reset_ts is not None:
                     wait = max(0, reset_ts - time.time()) + 1
-                    log.warning("Rate limited. Sleeping %.0f seconds until reset.", wait)
+                    logger.warning("Rate limited. Sleeping %.0f seconds until reset.", wait)
                     time.sleep(wait)
                     continue
-            log.error("gh api error (rc=%d): %s", result.returncode, result.stderr)
+            logger.error("gh api error (rc=%d): %s", result.returncode, result.stderr)
             return None
 
         break

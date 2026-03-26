@@ -35,26 +35,11 @@ def format_human(query_item: dict, assessments: list[Assessment]) -> str:
 
     for a in assessments:
         candidate_url = github_url(a.repo, a.item_type, a.item_number)
-        candidate_title = getattr(a, "title", "") or ""
-        created_at = getattr(a, "created_at", "") or ""
-        if created_at and len(created_at) >= 10:
-            created_at = created_at[:10]
-
         classification = a.classification.upper()
         confidence = a.confidence
 
         lines.append(f"#{a.item_number} [{classification} - {confidence} confidence]")
-        if candidate_title:
-            lines.append(f'  "{candidate_title}"')
         lines.append(f"  {candidate_url}")
-        status_parts = []
-        state = getattr(a, "state", None)
-        if state:
-            status_parts.append(f"Status: {state}")
-        if created_at:
-            status_parts.append(f"Created: {created_at}")
-        if status_parts:
-            lines.append(f"  {' | '.join(status_parts)}")
         lines.append(f"  Reasoning: {a.reasoning}")
         lines.append(f"  Suggested action: {a.suggested_action}")
         lines.append("")

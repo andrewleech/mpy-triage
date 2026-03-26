@@ -8,7 +8,7 @@ import logging
 import sqlite3
 from pathlib import Path
 
-log = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 
 def get_connection(db_path: Path) -> sqlite3.Connection:
@@ -82,4 +82,4 @@ def load_vec_extension(conn: sqlite3.Connection) -> None:
     conn.enable_load_extension(True)
     sqlite_vec.load(conn)
     conn.enable_load_extension(False)
-    log.info("sqlite-vec extension loaded")
+    logger.info("sqlite-vec extension loaded")

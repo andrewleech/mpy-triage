@@ -1,5 +1,6 @@
 """Configuration management for mpy-triage."""
 
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -17,7 +18,7 @@ class EmbeddingConfig:
     )
     document_prefix: str = ""
     max_seq_length: int = 32768
-    device: str = field(default=None)
+    device: str | None = field(default=None)
 
     def __post_init__(self):
         if self.device is None:
@@ -84,3 +85,12 @@ def set_config(config: TriageConfig) -> None:
     """Set the global configuration instance."""
     global _config
     _config = config
+
+
+def clean_env() -> dict:
+    """Copy os.environ, removing keys starting with CLAUDECODE.
+
+    Used when spawning claude subprocesses to prevent recursion
+    when running inside Claude Code.
+    """
+    return {k: v for k, v in os.environ.items() if not k.startswith("CLAUDECODE")}

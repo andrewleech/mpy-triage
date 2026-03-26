@@ -54,13 +54,18 @@ def main(ctx, db, verbose):
     _setup_logging(verbose)
 
 
+_REPO_RE = __import__("re").compile(r"^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$")
+
+
 def _get_repos(repo_tuple):
     """Resolve repo list from CLI option or config default."""
     from .config import get_config
 
-    if repo_tuple:
-        return list(repo_tuple)
-    return get_config().repos
+    repos = list(repo_tuple) if repo_tuple else get_config().repos
+    for r in repos:
+        if not _REPO_RE.match(r):
+            raise click.BadParameter(f"Invalid repo format: {r!r} (expected 'owner/name')")
+    return repos
 
 
 def _get_config_with_db(ctx):
@@ -84,6 +89,7 @@ def _get_config_with_db(ctx):
 def collect(ctx, repo):
     """Mirror GitHub issues, PRs, comments, and diffs into SQLite."""
     from .collect import collect_all
+    from .crossref import build_ground_truth, extract_cross_references
     from .db import get_connection, init_db
 
     config = _get_config_with_db(ctx)
@@ -95,6 +101,11 @@ def collect(ctx, repo):
         logger.info("Collecting from %s", r)
         counts = collect_all(conn, r)
         click.echo(f"{r}: {counts}")
+
+        logger.info("Extracting cross-references for %s", r)
+        xref_count = extract_cross_references(conn, r)
+        gt_count = build_ground_truth(conn, r)
+        click.echo(f"{r}: {xref_count} cross-refs, {gt_count} ground truth entries")
 
     conn.close()
 
@@ -167,7 +178,7 @@ def embed(ctx, force, batch_size):
 
 def _triage_item(ctx, number, repo, item_type, skip_summarize, skip_assess, output_json):
     """Shared implementation for issue and pr commands."""
-    from .assemble import assemble_item
+    from .assemble import _assemble_and_store
     from .db import get_connection, init_db
     from .format import format_human, format_json
 
@@ -204,21 +215,26 @@ def _triage_item(ctx, number, repo, item_type, skip_summarize, skip_assess, outp
             logger.info("Summarizing %s #%d", item_type, number)
             summarize_item(conn, repo, number, item_type)
 
-    # Assemble
+    # Assemble and persist
     logger.info("Assembling %s #%d", item_type, number)
-    assemble_item(conn, repo, number, item_type)
+    _assemble_and_store(conn, repo, number, item_type)
 
     # Search for candidates
     from .embed import Embedder
     from .search import search
 
+    query_text = query_item.get("title", "")
+    body = query_item.get("body") or ""
+    if body:
+        query_text = f"{query_text}\n{body[:2000]}"
+
     embedder = Embedder(config.embedding)
     candidates = search(
         conn,
-        query_item.get("title", ""),
+        query_text,
         embedder,
         config=config.retrieval,
-        filters={"exclude_number": number, "exclude_repo": repo},
+        exclude=(number, repo),
     )
 
     # Assess candidates
@@ -280,6 +296,9 @@ def stats(ctx):
         click.echo(f"Could not open database at {config.db_path}: {e}")
         raise SystemExit(1)
 
+    _STAT_TABLES = {
+        "issues", "pull_requests", "comments", "summaries", "assembled_xml",
+    }
     db_stats = {}
     for table, key in [
         ("issues", "issues"),
@@ -288,6 +307,7 @@ def stats(ctx):
         ("summaries", "summaries"),
         ("assembled_xml", "assembled"),
     ]:
+        assert table in _STAT_TABLES
         row = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()
         db_stats[key] = row[0]
 

@@ -93,7 +93,7 @@ def keyword_search(
     for row in cursor:
         results.append(
             {
-                "item_number": row[0],
+                "item_number": int(row[0]),
                 "item_type": row[1],
                 "repo": row[2],
                 "score": -row[3],
@@ -200,8 +200,16 @@ def search(
     *,
     config: RetrievalConfig | None = None,
     filters: dict | None = None,
+    exclude: tuple[int, str] | None = None,
+    reranker: Reranker | None = None,
 ) -> list[dict]:
-    """Full search pipeline: embed, dense + sparse, RRF, rerank."""
+    """Full search pipeline: embed, dense + sparse, RRF, rerank.
+
+    Args:
+        exclude: Optional (item_number, repo) tuple to exclude from results
+            (typically the query item itself).
+        reranker: Optional pre-loaded Reranker instance for caching across calls.
+    """
     if config is None:
         config = get_config().retrieval
 
@@ -214,11 +222,20 @@ def search(
 
     merged = reciprocal_rank_fusion(dense_results, sparse_results, k=config.rrf_k)
 
+    # Exclude the query item from results (self-match removal).
+    if exclude is not None:
+        exc_number, exc_repo = exclude
+        merged = [
+            r for r in merged
+            if not (r["item_number"] == exc_number and r["repo"] == exc_repo)
+        ]
+
     for candidate in merged:
         candidate["content"] = _fetch_content(conn, candidate)
 
     if merged:
-        reranker = Reranker(config.reranker_model)
+        if reranker is None:
+            reranker = Reranker(config.reranker_model)
         merged = reranker.rerank(query_text, merged, top_k=config.top_k_rerank)
 
     return merged

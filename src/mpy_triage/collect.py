@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from tqdm import tqdm
 
 from .db import get_sync_state, set_sync_state
-from .gh import gh_api, gh_diff, gh_search
+from .gh import gh_api, gh_diff
 
 logger = logging.getLogger(__name__)
 
@@ -19,26 +19,6 @@ def _extract_labels(item: dict) -> str:
     """Extract label names from an issue/PR item as a JSON array string."""
     labels = [lbl["name"] for lbl in (item.get("labels") or [])]
     return json.dumps(labels)
-
-
-def _full_sync_via_search(repo: str, item_type: str) -> list[dict]:
-    """Fetch all issues or PRs via year-range search to bypass the 1000-result limit."""
-    current_year = datetime.now().year
-    all_items: list[dict] = []
-    seen_ids: set[int] = set()
-
-    for year in range(2013, current_year + 1):
-        date_range = (f"{year}-01-01", f"{year}-12-31")
-        query = f"repo:{repo} is:{item_type}"
-        logger.info("Searching %s from %d...", item_type, year)
-        results = gh_search(query, date_range=date_range)
-        for item in results:
-            if item["id"] not in seen_ids:
-                seen_ids.add(item["id"])
-                all_items.append(item)
-        logger.info("  Found %d %s from %d", len(results), item_type, year)
-
-    return all_items
 
 
 def _utcnow_iso() -> str:
@@ -62,7 +42,7 @@ def collect_issues(conn: sqlite3.Connection, repo: str) -> int:
     since = get_sync_state(conn, sync_key)
     count = 0
 
-    params = {"state": "all", "per_page": "100", "direction": "asc"}
+    params = {"state": "all", "per_page": "100", "sort": "updated", "direction": "asc"}
     if since:
         logger.info("Incremental issue sync since %s", since)
         params["since"] = since
@@ -70,6 +50,7 @@ def collect_issues(conn: sqlite3.Connection, repo: str) -> int:
         logger.info("Full issue sync via list endpoint")
 
     query = "&".join(f"{k}={v}" for k, v in params.items())
+    # Note: loading all results into memory is an accepted trade-off for ~5k-50k items.
     items = gh_api(f"/repos/{repo}/issues?{query}", paginate=True) or []
     # The issues endpoint also returns PRs; filter them out.
     items = [i for i in items if "pull_request" not in i]
@@ -111,7 +92,7 @@ def collect_pull_requests(conn: sqlite3.Connection, repo: str) -> int:
     since = get_sync_state(conn, sync_key)
     count = 0
 
-    params = {"state": "all", "per_page": "100", "direction": "asc"}
+    params = {"state": "all", "per_page": "100", "sort": "updated", "direction": "asc"}
     if since:
         logger.info("Incremental PR sync since %s", since)
         params["since"] = since

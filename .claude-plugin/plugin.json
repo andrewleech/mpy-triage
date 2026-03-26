@@ -5,5 +5,6 @@
   "author": {
     "name": "andrewleech"
   },
-  "keywords": ["micropython", "triage", "duplicate-detection", "rag"]
+  "keywords": ["micropython", "triage", "duplicate-detection", "rag"],
+  "skills": "./skills/"
 }

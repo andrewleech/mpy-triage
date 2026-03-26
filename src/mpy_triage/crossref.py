@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import sqlite3
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 # Pattern to match fenced code blocks (``` ... ```)
 _CODE_BLOCK_RE = re.compile(r"```.*?```", re.DOTALL)
@@ -118,20 +119,15 @@ def extract_cross_references(conn: sqlite3.Connection, repo: str) -> int:
     write_cursor = conn.cursor()
     count = 0
 
+    _where = "WHERE repo = ? AND body IS NOT NULL AND body != ''"
     sources = [
-        ("SELECT number, body FROM issues WHERE body IS NOT NULL AND body != ''", "issue"),
-        (
-            "SELECT number, body FROM pull_requests WHERE body IS NOT NULL AND body != ''",
-            "pr",
-        ),
-        (
-            "SELECT item_number, body FROM comments WHERE body IS NOT NULL AND body != ''",
-            "comment",
-        ),
+        (f"SELECT number, body FROM issues {_where}", "issue"),
+        (f"SELECT number, body FROM pull_requests {_where}", "pr"),
+        (f"SELECT item_number, body FROM comments {_where}", "comment"),
     ]
 
     for query, source_type in sources:
-        read_cursor.execute(query)
+        read_cursor.execute(query, (repo,))
         for number, body in read_cursor.fetchall():
             for ref in parse_references(body, repo):
                 ref.source_number = number
@@ -183,7 +179,10 @@ def build_ground_truth(conn: sqlite3.Connection, repo: str) -> int:
     count = 0
 
     # Find issues marked as duplicate
-    read_cursor.execute("SELECT number, body FROM issues WHERE state_reason = 'duplicate'")
+    read_cursor.execute(
+        "SELECT number, body FROM issues WHERE state_reason = 'duplicate' AND repo = ?",
+        (repo,),
+    )
     for number, body in read_cursor.fetchall():
         targets = _find_duplicate_targets(conn, repo, number, body)
         for target_repo, target_number in targets:
@@ -225,8 +224,9 @@ def _find_duplicate_targets(
     # Check comments on this issue
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT body FROM comments WHERE item_number = ? AND body IS NOT NULL AND body != ''",
-        (item_number,),
+        "SELECT body FROM comments"
+        " WHERE item_number = ? AND repo = ? AND body IS NOT NULL AND body != ''",
+        (item_number, repo),
     )
     for (comment_body,) in cursor.fetchall():
         for ref in parse_references(comment_body, repo):
@@ -247,9 +247,11 @@ def _insert_ground_truth(
     cursor.execute(
         """
         INSERT OR IGNORE INTO ground_truth
-            (item_a_number, item_a_repo, item_b_number, item_b_repo, relationship, source)
-        VALUES (?, ?, ?, ?, 'duplicate', 'crossref')
+            (item_a_number, item_a_repo, item_b_number, item_b_repo,
+             relationship, source, discovered_at)
+        VALUES (?, ?, ?, ?, 'duplicate', 'crossref', ?)
         """,
-        (source_number, source_repo, target_number, target_repo),
+        (source_number, source_repo, target_number, target_repo,
+         datetime.now(timezone.utc).isoformat()),
     )
     return cursor.rowcount

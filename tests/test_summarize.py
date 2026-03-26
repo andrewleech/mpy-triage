@@ -5,9 +5,9 @@ import os
 import subprocess
 from unittest.mock import patch
 
+from mpy_triage.config import clean_env as _clean_env
 from mpy_triage.summarize import (
     _build_context,
-    _clean_env,
     _get_json_schema,
     summarize_item,
 )

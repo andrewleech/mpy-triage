@@ -9,11 +9,11 @@ from unittest.mock import MagicMock, patch
 from mpy_triage.assess import (
     Assessment,
     _build_comparison_prompt,
-    _clean_env,
     _get_json_schema,
     _load_system_prompt,
     assess_candidates,
 )
+from mpy_triage.config import clean_env as _clean_env
 
 # --- Helpers ---
 

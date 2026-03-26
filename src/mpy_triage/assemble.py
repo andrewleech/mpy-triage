@@ -94,6 +94,7 @@ def assemble_item(
     else:
         table = "pull_requests"
         tag = "pull_request"
+    assert table in ("issues", "pull_requests")
 
     row = conn.execute(
         f"SELECT * FROM {table} WHERE repo = ? AND number = ?",

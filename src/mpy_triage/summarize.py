@@ -2,12 +2,11 @@
 
 import json
 import logging
-import os
 import sqlite3
 import subprocess
 from datetime import datetime, timezone
 
-from .config import get_config
+from .config import clean_env, get_config
 
 logger = logging.getLogger(__name__)
 
@@ -44,11 +43,6 @@ _JSON_SCHEMA = {
 }
 
 _DIFF_TRUNCATE_LIMIT = 10000
-
-
-def _clean_env() -> dict:
-    """Copy os.environ, removing keys starting with CLAUDECODE to prevent recursion."""
-    return {k: v for k, v in os.environ.items() if not k.startswith("CLAUDECODE")}
 
 
 def _get_json_schema() -> str:
@@ -221,7 +215,7 @@ def summarize_item(
             capture_output=True,
             text=True,
             timeout=TIMEOUT_SECONDS,
-            env=_clean_env(),
+            env=clean_env(),
         )
         if result.returncode != 0:
             logger.warning(
