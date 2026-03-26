@@ -1,12 +1,44 @@
 """CLI entry point for mpy-triage."""
 
 import logging
+import tempfile
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
 import click
 
 from . import __version__
 
 logger = logging.getLogger(__name__)
+
+LOG_DIR = Path(tempfile.gettempdir()) / "mpy-triage"
+LOG_FILE = LOG_DIR / "mpy-triage.log"
+LOG_MAX_BYTES = 5 * 1024 * 1024  # 5 MB
+LOG_BACKUP_COUNT = 3
+
+
+def _setup_logging(verbose: bool) -> None:
+    """Configure logging with stderr + rotating file handler."""
+    root = logging.getLogger()
+    root.setLevel(logging.DEBUG if verbose else logging.INFO)
+
+    # stderr handler
+    console = logging.StreamHandler()
+    console.setLevel(logging.DEBUG if verbose else logging.INFO)
+    console.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
+    root.addHandler(console)
+
+    # Rotating file handler
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    file_handler = RotatingFileHandler(
+        LOG_FILE, maxBytes=LOG_MAX_BYTES, backupCount=LOG_BACKUP_COUNT
+    )
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(
+        logging.Formatter("%(asctime)s %(name)s %(levelname)s: %(message)s")
+    )
+    root.addHandler(file_handler)
+    logger.debug("Log file: %s", LOG_FILE)
 
 
 @click.group()
@@ -19,10 +51,7 @@ def main(ctx, db, verbose):
     ctx.ensure_object(dict)
     ctx.obj["db"] = db
     ctx.obj["verbose"] = verbose
-    if verbose:
-        logging.basicConfig(level=logging.DEBUG)
-    else:
-        logging.basicConfig(level=logging.INFO)
+    _setup_logging(verbose)
 
 
 def _get_repos(repo_tuple):
