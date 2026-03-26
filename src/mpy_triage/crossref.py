@@ -119,11 +119,11 @@ def extract_cross_references(conn: sqlite3.Connection, repo: str) -> int:
     write_cursor = conn.cursor()
     count = 0
 
-    _where = "WHERE repo = ? AND body IS NOT NULL AND body != ''"
+    where = "WHERE repo = ? AND body IS NOT NULL AND body != ''"
     sources = [
-        (f"SELECT number, body FROM issues {_where}", "issue"),
-        (f"SELECT number, body FROM pull_requests {_where}", "pr"),
-        (f"SELECT item_number, body FROM comments {_where}", "comment"),
+        (f"SELECT number, body FROM issues {where}", "issue"),
+        (f"SELECT number, body FROM pull_requests {where}", "pr"),
+        (f"SELECT item_number, body FROM comments {where}", "comment"),
     ]
 
     for query, source_type in sources:
@@ -177,6 +177,7 @@ def build_ground_truth(conn: sqlite3.Connection, repo: str) -> int:
     read_cursor = conn.cursor()
     write_cursor = conn.cursor()
     count = 0
+    now = datetime.now(timezone.utc).isoformat()
 
     # Find issues marked as duplicate
     read_cursor.execute(
@@ -186,7 +187,9 @@ def build_ground_truth(conn: sqlite3.Connection, repo: str) -> int:
     for number, body in read_cursor.fetchall():
         targets = _find_duplicate_targets(conn, repo, number, body)
         for target_repo, target_number in targets:
-            count += _insert_ground_truth(write_cursor, repo, number, target_repo, target_number)
+            count += _insert_ground_truth(
+                write_cursor, repo, number, target_repo, target_number, now
+            )
 
     # Also pull in any "duplicate_of" cross_references not yet in ground_truth
     read_cursor.execute(
@@ -199,7 +202,7 @@ def build_ground_truth(conn: sqlite3.Connection, repo: str) -> int:
     )
     for source_repo, source_number, target_repo, target_number in read_cursor.fetchall():
         count += _insert_ground_truth(
-            write_cursor, source_repo, source_number, target_repo, target_number
+            write_cursor, source_repo, source_number, target_repo, target_number, now
         )
 
     conn.commit()
@@ -242,6 +245,7 @@ def _insert_ground_truth(
     source_number: int,
     target_repo: str,
     target_number: int,
+    discovered_at: str,
 ) -> int:
     """Insert a ground truth entry, returning 1 if inserted or 0 if duplicate."""
     cursor.execute(
@@ -251,7 +255,6 @@ def _insert_ground_truth(
              relationship, source, discovered_at)
         VALUES (?, ?, ?, ?, 'duplicate', 'crossref', ?)
         """,
-        (source_number, source_repo, target_number, target_repo,
-         datetime.now(timezone.utc).isoformat()),
+        (source_number, source_repo, target_number, target_repo, discovered_at),
     )
     return cursor.rowcount

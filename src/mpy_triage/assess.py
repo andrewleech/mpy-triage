@@ -141,8 +141,7 @@ def assess_candidates(
 
         cand_text = _fetch_item_text(conn, candidate)
         user_prompt = _build_comparison_prompt(query_text, cand_text)
-        # Note: claude -p reads stdin as user prompt; system prompt is included
-        # in the same input since there is no --system-prompt flag.
+        # claude -p has no --system-prompt flag; both go via stdin.
         full_prompt = f"{system_prompt}\n\n{user_prompt}"
 
         cmd = [

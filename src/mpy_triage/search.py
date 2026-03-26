@@ -199,7 +199,6 @@ def search(
     embedder: Embedder,
     *,
     config: RetrievalConfig | None = None,
-    filters: dict | None = None,
     exclude: tuple[int, str] | None = None,
     reranker: Reranker | None = None,
 ) -> list[dict]:
@@ -216,13 +215,12 @@ def search(
     query_embedding = embedder.encode_query(query_text)
 
     dense_results = dense_search(
-        conn, query_embedding, top_k=config.top_k_initial, filters=filters
+        conn, query_embedding, top_k=config.top_k_initial
     )
     sparse_results = keyword_search(conn, query_text, top_k=config.top_k_initial)
 
     merged = reciprocal_rank_fusion(dense_results, sparse_results, k=config.rrf_k)
 
-    # Exclude the query item from results (self-match removal).
     if exclude is not None:
         exc_number, exc_repo = exclude
         merged = [
@@ -230,6 +228,8 @@ def search(
             if not (r["item_number"] == exc_number and r["repo"] == exc_repo)
         ]
 
+    # Only fetch content for the candidates that will be reranked.
+    merged = merged[:config.top_k_rerank]
     for candidate in merged:
         candidate["content"] = _fetch_content(conn, candidate)
 

@@ -50,7 +50,6 @@ def collect_issues(conn: sqlite3.Connection, repo: str) -> int:
         logger.info("Full issue sync via list endpoint")
 
     query = "&".join(f"{k}={v}" for k, v in params.items())
-    # Note: loading all results into memory is an accepted trade-off for ~5k-50k items.
     items = gh_api(f"/repos/{repo}/issues?{query}", paginate=True) or []
     # The issues endpoint also returns PRs; filter them out.
     items = [i for i in items if "pull_request" not in i]

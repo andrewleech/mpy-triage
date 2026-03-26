@@ -1,6 +1,7 @@
 """CLI entry point for mpy-triage."""
 
 import logging
+import re
 import tempfile
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -54,7 +55,7 @@ def main(ctx, db, verbose):
     _setup_logging(verbose)
 
 
-_REPO_RE = __import__("re").compile(r"^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$")
+_REPO_RE = re.compile(r"^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$")
 
 
 def _get_repos(repo_tuple):
@@ -296,18 +297,15 @@ def stats(ctx):
         click.echo(f"Could not open database at {config.db_path}: {e}")
         raise SystemExit(1)
 
-    _STAT_TABLES = {
-        "issues", "pull_requests", "comments", "summaries", "assembled_xml",
-    }
-    db_stats = {}
-    for table, key in [
+    _table_keys = [
         ("issues", "issues"),
         ("pull_requests", "pull_requests"),
         ("comments", "comments"),
         ("summaries", "summaries"),
         ("assembled_xml", "assembled"),
-    ]:
-        assert table in _STAT_TABLES
+    ]
+    db_stats = {}
+    for table, key in _table_keys:
         row = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()
         db_stats[key] = row[0]
 
