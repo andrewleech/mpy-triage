@@ -125,7 +125,7 @@ def extract_cross_references(conn: sqlite3.Connection, repo: str) -> int:
             "pr",
         ),
         (
-            "SELECT issue_number, body FROM comments WHERE body IS NOT NULL AND body != ''",
+            "SELECT item_number, body FROM comments WHERE body IS NOT NULL AND body != ''",
             "comment",
         ),
     ]
@@ -147,16 +147,18 @@ def _insert_cross_reference(cursor: sqlite3.Cursor, ref: CrossRef) -> int:
     cursor.execute(
         """
         INSERT OR IGNORE INTO cross_references
-            (source_repo, source_number, source_type, target_repo, target_number, relationship)
-        VALUES (?, ?, ?, ?, ?, ?)
+            (source_number, source_type, source_repo,
+             target_number, target_repo, relationship, extracted_from)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
         (
-            ref.source_repo,
             ref.source_number,
             ref.source_type,
-            ref.target_repo,
+            ref.source_repo,
             ref.target_number,
+            ref.target_repo,
             ref.relationship,
+            ref.source_type,  # extracted_from mirrors source_type
         ),
     )
     return cursor.rowcount
@@ -208,7 +210,7 @@ def build_ground_truth(conn: sqlite3.Connection, repo: str) -> int:
 def _find_duplicate_targets(
     conn: sqlite3.Connection,
     repo: str,
-    issue_number: int,
+    item_number: int,
     body: str | None,
 ) -> set[tuple[str, int]]:
     """Find duplicate targets from issue body and its comments."""
@@ -223,8 +225,8 @@ def _find_duplicate_targets(
     # Check comments on this issue
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT body FROM comments WHERE issue_number = ? AND body IS NOT NULL AND body != ''",
-        (issue_number,),
+        "SELECT body FROM comments WHERE item_number = ? AND body IS NOT NULL AND body != ''",
+        (item_number,),
     )
     for (comment_body,) in cursor.fetchall():
         for ref in parse_references(comment_body, repo):
@@ -245,9 +247,9 @@ def _insert_ground_truth(
     cursor.execute(
         """
         INSERT OR IGNORE INTO ground_truth
-            (source_repo, source_number, target_repo, target_number, relationship)
-        VALUES (?, ?, ?, ?, 'duplicate')
+            (item_a_number, item_a_repo, item_b_number, item_b_repo, relationship, source)
+        VALUES (?, ?, ?, ?, 'duplicate', 'crossref')
         """,
-        (source_repo, source_number, target_repo, target_number),
+        (source_number, source_repo, target_number, target_repo),
     )
     return cursor.rowcount

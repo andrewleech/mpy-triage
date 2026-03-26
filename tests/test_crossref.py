@@ -219,8 +219,11 @@ class TestParseReferencesEdgeCases:
 @pytest.fixture
 def tmp_db():
     """Create an in-memory SQLite database with schema."""
+    from pathlib import Path
+
     conn = sqlite3.connect(":memory:")
-    init_db(conn)
+    schema_path = Path(__file__).parent.parent / "schema.sql"
+    init_db(conn, schema_path)
     yield conn
     conn.close()
 
@@ -235,8 +238,8 @@ class TestExtractCrossReferences:
 
     def test_extract_from_issues(self, tmp_db):
         tmp_db.execute(
-            "INSERT INTO issues (number, title, body, state) VALUES (?, ?, ?, ?)",
-            (1, "Bug report", "Fixes #100", "open"),
+            "INSERT INTO issues (number, repo, title, body, state) VALUES (?, ?, ?, ?, ?)",
+            (1, REPO, "Bug report", "Fixes #100", "open"),
         )
         tmp_db.commit()
 
@@ -245,18 +248,18 @@ class TestExtractCrossReferences:
 
         rows = tmp_db.execute("SELECT * FROM cross_references").fetchall()
         assert len(rows) == 1
-        # id, source_repo, source_number, source_type, target_repo, target_number, relationship
-        assert rows[0][1] == REPO
-        assert rows[0][2] == 1  # source_number
-        assert rows[0][3] == "issue"  # source_type
-        assert rows[0][4] == REPO  # target_repo
-        assert rows[0][5] == 100  # target_number
-        assert rows[0][6] == "fixes"  # relationship
+        # id, source_number, source_type, source_repo, target_number, target_type, target_repo, relationship, extracted_from
+        assert rows[0][1] == 1  # source_number
+        assert rows[0][2] == "issue"  # source_type
+        assert rows[0][3] == REPO  # source_repo
+        assert rows[0][4] == 100  # target_number
+        assert rows[0][6] == REPO  # target_repo
+        assert rows[0][7] == "fixes"  # relationship
 
     def test_extract_from_pull_requests(self, tmp_db):
         tmp_db.execute(
-            "INSERT INTO pull_requests (number, title, body, state) VALUES (?, ?, ?, ?)",
-            (50, "Fix something", "Closes #200", "open"),
+            "INSERT INTO pull_requests (number, repo, title, body, state) VALUES (?, ?, ?, ?, ?)",
+            (50, REPO, "Fix something", "Closes #200", "open"),
         )
         tmp_db.commit()
 
@@ -264,16 +267,16 @@ class TestExtractCrossReferences:
         assert count == 1
 
         rows = tmp_db.execute("SELECT * FROM cross_references").fetchall()
-        assert rows[0][3] == "pr"
+        assert rows[0][2] == "pr"  # source_type
 
     def test_extract_from_comments(self, tmp_db):
         tmp_db.execute(
-            "INSERT INTO issues (number, title, body, state) VALUES (?, ?, ?, ?)",
-            (10, "An issue", "", "open"),
+            "INSERT INTO issues (number, repo, title, body, state) VALUES (?, ?, ?, ?, ?)",
+            (10, REPO, "An issue", "", "open"),
         )
         tmp_db.execute(
-            "INSERT INTO comments (id, issue_number, body) VALUES (?, ?, ?)",
-            (1, 10, "Duplicate of #300"),
+            "INSERT INTO comments (id, item_number, item_type, repo, body) VALUES (?, ?, ?, ?, ?)",
+            (1, 10, "issue", REPO, "Duplicate of #300"),
         )
         tmp_db.commit()
 
@@ -281,13 +284,13 @@ class TestExtractCrossReferences:
         assert count == 1
 
         rows = tmp_db.execute("SELECT * FROM cross_references").fetchall()
-        assert rows[0][3] == "comment"
-        assert rows[0][6] == "duplicate_of"
+        assert rows[0][2] == "comment"  # source_type
+        assert rows[0][7] == "duplicate_of"  # relationship
 
     def test_no_duplicates_on_rerun(self, tmp_db):
         tmp_db.execute(
-            "INSERT INTO issues (number, title, body, state) VALUES (?, ?, ?, ?)",
-            (1, "Bug", "Fixes #100", "open"),
+            "INSERT INTO issues (number, repo, title, body, state) VALUES (?, ?, ?, ?, ?)",
+            (1, REPO, "Bug", "Fixes #100", "open"),
         )
         tmp_db.commit()
 
@@ -298,8 +301,8 @@ class TestExtractCrossReferences:
 
     def test_null_body_skipped(self, tmp_db):
         tmp_db.execute(
-            "INSERT INTO issues (number, title, body, state) VALUES (?, ?, ?, ?)",
-            (1, "Bug", None, "open"),
+            "INSERT INTO issues (number, repo, title, body, state) VALUES (?, ?, ?, ?, ?)",
+            (1, REPO, "Bug", None, "open"),
         )
         tmp_db.commit()
 
@@ -308,16 +311,16 @@ class TestExtractCrossReferences:
 
     def test_multiple_sources(self, tmp_db):
         tmp_db.execute(
-            "INSERT INTO issues (number, title, body, state) VALUES (?, ?, ?, ?)",
-            (1, "Issue A", "Fixes #100", "open"),
+            "INSERT INTO issues (number, repo, title, body, state) VALUES (?, ?, ?, ?, ?)",
+            (1, REPO, "Issue A", "Fixes #100", "open"),
         )
         tmp_db.execute(
-            "INSERT INTO pull_requests (number, title, body, state) VALUES (?, ?, ?, ?)",
-            (2, "PR B", "Related to #200", "open"),
+            "INSERT INTO pull_requests (number, repo, title, body, state) VALUES (?, ?, ?, ?, ?)",
+            (2, REPO, "PR B", "Related to #200", "open"),
         )
         tmp_db.execute(
-            "INSERT INTO comments (id, issue_number, body) VALUES (?, ?, ?)",
-            (1, 1, "See also #300"),
+            "INSERT INTO comments (id, item_number, item_type, repo, body) VALUES (?, ?, ?, ?, ?)",
+            (1, 1, "issue", REPO, "See also #300"),
         )
         tmp_db.commit()
 
@@ -335,8 +338,8 @@ class TestBuildGroundTruth:
 
     def test_duplicate_issue_with_body_ref(self, tmp_db):
         tmp_db.execute(
-            "INSERT INTO issues (number, title, body, state, state_reason) VALUES (?, ?, ?, ?, ?)",
-            (10, "Dup issue", "Duplicate of #5", "closed", "duplicate"),
+            "INSERT INTO issues (number, repo, title, body, state, state_reason) VALUES (?, ?, ?, ?, ?, ?)",
+            (10, REPO, "Dup issue", "Duplicate of #5", "closed", "duplicate"),
         )
         tmp_db.commit()
 
@@ -345,20 +348,21 @@ class TestBuildGroundTruth:
 
         rows = tmp_db.execute("SELECT * FROM ground_truth").fetchall()
         assert len(rows) == 1
-        assert rows[0][1] == REPO  # source_repo
-        assert rows[0][2] == 10  # source_number
-        assert rows[0][3] == REPO  # target_repo
-        assert rows[0][4] == 5  # target_number
+        # id, item_a_number, item_a_repo, item_b_number, item_b_repo, relationship, source
+        assert rows[0][2] == REPO  # item_a_repo
+        assert rows[0][1] == 10  # item_a_number
+        assert rows[0][4] == REPO  # item_b_repo
+        assert rows[0][3] == 5  # item_b_number
         assert rows[0][5] == "duplicate"  # relationship
 
     def test_duplicate_issue_with_comment_ref(self, tmp_db):
         tmp_db.execute(
-            "INSERT INTO issues (number, title, body, state, state_reason) VALUES (?, ?, ?, ?, ?)",
-            (20, "Dup issue", "This is a duplicate", "closed", "duplicate"),
+            "INSERT INTO issues (number, repo, title, body, state, state_reason) VALUES (?, ?, ?, ?, ?, ?)",
+            (20, REPO, "Dup issue", "This is a duplicate", "closed", "duplicate"),
         )
         tmp_db.execute(
-            "INSERT INTO comments (id, issue_number, body) VALUES (?, ?, ?)",
-            (1, 20, "Duplicate of #15"),
+            "INSERT INTO comments (id, item_number, item_type, repo, body) VALUES (?, ?, ?, ?, ?)",
+            (1, 20, "issue", REPO, "Duplicate of #15"),
         )
         tmp_db.commit()
 
@@ -366,16 +370,16 @@ class TestBuildGroundTruth:
         assert count == 1
 
         rows = tmp_db.execute("SELECT * FROM ground_truth").fetchall()
-        assert rows[0][2] == 20
-        assert rows[0][4] == 15
+        assert rows[0][1] == 20  # item_a_number
+        assert rows[0][3] == 15  # item_b_number
 
     def test_duplicate_from_cross_references(self, tmp_db):
         # Pre-populate cross_references with a duplicate_of entry
         tmp_db.execute(
             """INSERT INTO cross_references
-            (source_repo, source_number, source_type, target_repo, target_number, relationship)
-            VALUES (?, ?, ?, ?, ?, ?)""",
-            (REPO, 30, "issue", REPO, 25, "duplicate_of"),
+            (source_number, source_type, source_repo, target_number, target_repo, relationship, extracted_from)
+            VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (30, "issue", REPO, 25, REPO, "duplicate_of", "body"),
         )
         tmp_db.commit()
 
@@ -384,8 +388,8 @@ class TestBuildGroundTruth:
 
     def test_no_duplicates_on_rerun(self, tmp_db):
         tmp_db.execute(
-            "INSERT INTO issues (number, title, body, state, state_reason) VALUES (?, ?, ?, ?, ?)",
-            (10, "Dup", "Duplicate of #5", "closed", "duplicate"),
+            "INSERT INTO issues (number, repo, title, body, state, state_reason) VALUES (?, ?, ?, ?, ?, ?)",
+            (10, REPO, "Dup", "Duplicate of #5", "closed", "duplicate"),
         )
         tmp_db.commit()
 
@@ -396,8 +400,8 @@ class TestBuildGroundTruth:
 
     def test_non_duplicate_issue_ignored(self, tmp_db):
         tmp_db.execute(
-            "INSERT INTO issues (number, title, body, state, state_reason) VALUES (?, ?, ?, ?, ?)",
-            (10, "Normal", "Fixes #5", "closed", "completed"),
+            "INSERT INTO issues (number, repo, title, body, state, state_reason) VALUES (?, ?, ?, ?, ?, ?)",
+            (10, REPO, "Normal", "Fixes #5", "closed", "completed"),
         )
         tmp_db.commit()
 
@@ -407,8 +411,8 @@ class TestBuildGroundTruth:
     def test_duplicate_issue_without_ref(self, tmp_db):
         """Duplicate issue with no 'Duplicate of' reference yields no ground truth."""
         tmp_db.execute(
-            "INSERT INTO issues (number, title, body, state, state_reason) VALUES (?, ?, ?, ?, ?)",
-            (10, "Dup", "This is a duplicate somehow", "closed", "duplicate"),
+            "INSERT INTO issues (number, repo, title, body, state, state_reason) VALUES (?, ?, ?, ?, ?, ?)",
+            (10, REPO, "Dup", "This is a duplicate somehow", "closed", "duplicate"),
         )
         tmp_db.commit()
 

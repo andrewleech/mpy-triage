@@ -83,7 +83,8 @@ CREATE TABLE IF NOT EXISTS cross_references (
     target_type TEXT,
     target_repo TEXT NOT NULL,
     relationship TEXT NOT NULL,  -- 'fixes', 'closes', 'related', 'duplicate_of', 'references'
-    extracted_from TEXT NOT NULL  -- 'body', 'comment', 'event'
+    extracted_from TEXT NOT NULL,  -- 'body', 'comment', 'event'
+    UNIQUE(source_number, source_repo, target_number, target_repo, relationship)
 );
 
 -- Known duplicate/related pairs from GitHub (for evaluation)
@@ -95,7 +96,8 @@ CREATE TABLE IF NOT EXISTS ground_truth (
     item_b_repo TEXT NOT NULL,
     relationship TEXT NOT NULL,  -- 'duplicate', 'related'
     source TEXT NOT NULL,  -- 'state_reason', 'comment', 'event'
-    discovered_at TEXT
+    discovered_at TEXT,
+    UNIQUE(item_a_repo, item_a_number, item_b_repo, item_b_number)
 );
 
 -- Sync state for incremental updates
