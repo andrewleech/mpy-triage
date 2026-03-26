@@ -3,8 +3,7 @@
   "version": "0.1.0",
   "description": "MicroPython issue/PR triage - duplicate and related item detection",
   "author": {
-    "name": "Andrew Leech"
+    "name": "andrewleech"
   },
-  "keywords": ["micropython", "triage", "duplicate-detection", "rag"],
-  "skills": "./skills/"
+  "keywords": ["micropython", "triage", "duplicate-detection", "rag"]
 }
