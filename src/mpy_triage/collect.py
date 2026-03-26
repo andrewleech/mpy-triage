@@ -62,16 +62,17 @@ def collect_issues(conn: sqlite3.Connection, repo: str) -> int:
     since = get_sync_state(conn, sync_key)
     count = 0
 
+    params = {"state": "all", "per_page": "100", "direction": "asc"}
     if since:
         logger.info("Incremental issue sync since %s", since)
-        params = {"state": "all", "since": since, "per_page": "100"}
-        query = "&".join(f"{k}={v}" for k, v in params.items())
-        items = gh_api(f"/repos/{repo}/issues?{query}", paginate=True) or []
-        # The issues endpoint also returns PRs; filter them out.
-        items = [i for i in items if "pull_request" not in i]
+        params["since"] = since
     else:
-        logger.info("Full issue sync via year-range search")
-        items = _full_sync_via_search(repo, "issue")
+        logger.info("Full issue sync via list endpoint")
+
+    query = "&".join(f"{k}={v}" for k, v in params.items())
+    items = gh_api(f"/repos/{repo}/issues?{query}", paginate=True) or []
+    # The issues endpoint also returns PRs; filter them out.
+    items = [i for i in items if "pull_request" not in i]
 
     for item in items:
         conn.execute(
@@ -110,14 +111,15 @@ def collect_pull_requests(conn: sqlite3.Connection, repo: str) -> int:
     since = get_sync_state(conn, sync_key)
     count = 0
 
+    params = {"state": "all", "per_page": "100", "direction": "asc"}
     if since:
         logger.info("Incremental PR sync since %s", since)
-        params = {"state": "all", "since": since, "per_page": "100"}
-        query = "&".join(f"{k}={v}" for k, v in params.items())
-        items = gh_api(f"/repos/{repo}/pulls?{query}", paginate=True) or []
+        params["since"] = since
     else:
-        logger.info("Full PR sync via year-range search")
-        items = _full_sync_via_search(repo, "pr")
+        logger.info("Full PR sync via list endpoint")
+
+    query = "&".join(f"{k}={v}" for k, v in params.items())
+    items = gh_api(f"/repos/{repo}/pulls?{query}", paginate=True) or []
 
     for item in items:
         state = item.get("state")

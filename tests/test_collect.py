@@ -85,12 +85,12 @@ def _make_review_comment(comment_id, pr_number, **overrides):
 
 
 class TestCollectIssues:
-    @patch("mpy_triage.collect.gh_search")
+    @patch("mpy_triage.collect.gh_api")
     @patch("mpy_triage.collect.get_sync_state", return_value=None)
     @patch("mpy_triage.collect.set_sync_state")
-    def test_full_sync_inserts_rows(self, mock_set, mock_get, mock_search, tmp_db):
+    def test_full_sync_inserts_rows(self, mock_set, mock_get, mock_api, tmp_db):
         issues = [_make_issue(1), _make_issue(2)]
-        mock_search.return_value = issues
+        mock_api.return_value = issues
 
         count = collect_issues(tmp_db, REPO)
 
@@ -111,9 +111,9 @@ class TestCollectIssues:
         assert "since=2024-05-01T00:00:00Z" in call_args[0][0]
 
     @patch("mpy_triage.collect.gh_api")
-    @patch("mpy_triage.collect.get_sync_state", return_value="2024-05-01T00:00:00Z")
+    @patch("mpy_triage.collect.get_sync_state", return_value=None)
     @patch("mpy_triage.collect.set_sync_state")
-    def test_incremental_filters_out_prs(self, mock_set, mock_get, mock_api, tmp_db):
+    def test_filters_out_prs(self, mock_set, mock_get, mock_api, tmp_db):
         """The /issues endpoint returns PRs too; they should be filtered out."""
         issue = _make_issue(10)
         pr_as_issue = _make_issue(11, pull_request={"url": "..."})
@@ -123,12 +123,12 @@ class TestCollectIssues:
 
         assert count == 1
 
-    @patch("mpy_triage.collect.gh_search")
+    @patch("mpy_triage.collect.gh_api")
     @patch("mpy_triage.collect.get_sync_state", return_value=None)
     @patch("mpy_triage.collect.set_sync_state")
-    def test_labels_stored_as_json(self, mock_set, mock_get, mock_search, tmp_db):
+    def test_labels_stored_as_json(self, mock_set, mock_get, mock_api, tmp_db):
         issue = _make_issue(5, labels=[{"name": "bug"}, {"name": "rp2"}])
-        mock_search.return_value = [issue]
+        mock_api.return_value = [issue]
 
         collect_issues(tmp_db, REPO)
 
@@ -141,12 +141,12 @@ class TestCollectIssues:
 
 
 class TestCollectPullRequests:
-    @patch("mpy_triage.collect.gh_search")
+    @patch("mpy_triage.collect.gh_api")
     @patch("mpy_triage.collect.get_sync_state", return_value=None)
     @patch("mpy_triage.collect.set_sync_state")
-    def test_full_sync_inserts_prs(self, mock_set, mock_get, mock_search, tmp_db):
+    def test_full_sync_inserts_prs(self, mock_set, mock_get, mock_api, tmp_db):
         prs = [_make_pr(100)]
-        mock_search.return_value = prs
+        mock_api.return_value = prs
 
         collect_pull_requests(tmp_db, REPO)
 
@@ -156,12 +156,12 @@ class TestCollectPullRequests:
         assert len(rows) == 1
         assert rows[0]["number"] == 100
 
-    @patch("mpy_triage.collect.gh_search")
+    @patch("mpy_triage.collect.gh_api")
     @patch("mpy_triage.collect.get_sync_state", return_value=None)
     @patch("mpy_triage.collect.set_sync_state")
-    def test_merged_state(self, mock_set, mock_get, mock_search, tmp_db):
+    def test_merged_state(self, mock_set, mock_get, mock_api, tmp_db):
         pr = _make_pr(101, state="closed", merged_at="2024-05-01T00:00:00Z")
-        mock_search.return_value = [pr]
+        mock_api.return_value = [pr]
 
         collect_pull_requests(tmp_db, REPO)
 

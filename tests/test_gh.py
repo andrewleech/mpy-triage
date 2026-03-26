@@ -170,6 +170,18 @@ class TestGhSearch:
 
     @patch.object(gh_mod, "REQUEST_DELAY", 0)
     @patch("subprocess.run")
+    def test_multi_page_merges_items(self, mock_run) -> None:
+        page1 = {"items": [{"number": 1}, {"number": 2}], "total_count": 4}
+        page2 = {"items": [{"number": 3}, {"number": 4}], "total_count": 4}
+        stdout = json.dumps(page1) + json.dumps(page2)
+        mock_run.return_value = _make_completed_process(stdout=stdout)
+
+        result = gh_search("repo:micropython/micropython is:issue")
+        assert len(result) == 4
+        assert {r["number"] for r in result} == {1, 2, 3, 4}
+
+    @patch.object(gh_mod, "REQUEST_DELAY", 0)
+    @patch("subprocess.run")
     def test_error_returns_empty(self, mock_run) -> None:
         mock_run.return_value = _make_completed_process(returncode=1, stderr="err")
         assert gh_search("bad query") == []

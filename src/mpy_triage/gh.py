@@ -102,10 +102,28 @@ def gh_search(query: str, *, date_range: tuple[str, str] | None = None) -> list[
         q += f" created:{start}..{end}"
 
     endpoint = f"search/issues?q={quote(q)}&per_page=100&sort=updated&order=desc"
-    result = gh_api(endpoint)
-    if result is None or not isinstance(result, dict):
+    result = gh_api(endpoint, paginate=True)
+    if result is None:
         return []
-    return result.get("items", [])
+
+    # gh --paginate on search endpoints concatenates page objects:
+    # [{"total_count": N, "items": [...]}, {"total_count": N, "items": [...]}, ...]
+    # _parse_concatenated_json returns these as a flat list of dicts.
+    if isinstance(result, list):
+        items: list[dict] = []
+        for entry in result:
+            if isinstance(entry, dict) and "items" in entry:
+                items.extend(entry["items"])
+            elif isinstance(entry, dict):
+                # Single search result item (shouldn't happen, but be safe)
+                items.append(entry)
+        return items
+
+    # Single page (dict) — not paginated
+    if isinstance(result, dict):
+        return result.get("items", [])
+
+    return []
 
 
 def gh_diff(repo: str, pr_number: int) -> str | None:
