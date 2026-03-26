@@ -156,6 +156,7 @@ def collect_pr_diffs(conn: sqlite3.Connection, repo: str) -> int:
         return 0
 
     count = 0
+    skipped = 0
     for pr_number in tqdm(pr_numbers, desc="Collecting PR diffs"):
         diff_text = gh_diff(repo, pr_number)
         if diff_text is not None:
@@ -164,10 +165,17 @@ def collect_pr_diffs(conn: sqlite3.Connection, repo: str) -> int:
                 (pr_number, repo, diff_text),
             )
             count += 1
-            _upsert_batch(conn, count)
+        else:
+            # Insert empty placeholder so we don't retry on next run.
+            conn.execute(
+                "INSERT INTO pr_diffs (pr_number, repo, diff_text) VALUES (?, ?, ?)",
+                (pr_number, repo, ""),
+            )
+            skipped += 1
+        _upsert_batch(conn, count + skipped)
 
     conn.commit()
-    logger.info("Collected %d PR diffs", count)
+    logger.info("Collected %d PR diffs (%d skipped/failed)", count, skipped)
     return count
 
 

@@ -57,8 +57,13 @@ def gh_api(
 
         try:
             result = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=GH_API_TIMEOUT
+                cmd, capture_output=True, timeout=GH_API_TIMEOUT
             )
+            # Decode stdout/stderr, replacing invalid bytes (some diffs contain binary).
+            if isinstance(result.stdout, bytes):
+                result.stdout = result.stdout.decode("utf-8", errors="replace")
+            if isinstance(result.stderr, bytes):
+                result.stderr = result.stderr.decode("utf-8", errors="replace")
         except subprocess.TimeoutExpired:
             logger.warning("gh api timed out after %ds: %s", GH_API_TIMEOUT, endpoint)
             return None
