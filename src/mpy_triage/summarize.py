@@ -219,7 +219,10 @@ def summarize_item(
         )
         if result.returncode != 0:
             logger.warning(
-                "claude subprocess failed for %s #%d: %s", item_type, item_number, result.stderr
+                "claude subprocess failed for %s #%d (rc=%d): stderr=%s stdout=%s",
+                item_type, item_number, result.returncode,
+                result.stderr[:500] if result.stderr else "(empty)",
+                result.stdout[:500] if result.stdout else "(empty)",
             )
             return None
 

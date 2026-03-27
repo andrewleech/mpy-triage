@@ -169,10 +169,12 @@ def assess_candidates(
             )
             if result.returncode != 0:
                 logger.warning(
-                    "claude subprocess failed for %s #%s: %s",
+                    "claude subprocess failed for %s #%s (rc=%d): stderr=%s stdout=%s",
                     cand_type,
                     cand_number,
-                    result.stderr,
+                    result.returncode,
+                    result.stderr[:500] if result.stderr else "(empty)",
+                    result.stdout[:500] if result.stdout else "(empty)",
                 )
                 assessments.append(
                     _make_fallback(
