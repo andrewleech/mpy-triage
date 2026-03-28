@@ -285,6 +285,8 @@ def _summarize_via_local(
             "json_schema": {"name": "summary", "schema": _JSON_SCHEMA},
         },
         "temperature": 0.1,
+        # Disable Qwen3.5 thinking/reasoning mode for faster inference.
+        "thinking": {"type": "disabled"},
     }).encode("utf-8")
 
     req = urllib.request.Request(

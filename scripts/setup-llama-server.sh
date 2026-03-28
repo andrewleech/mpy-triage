@@ -74,4 +74,5 @@ exec "$LLAMA_DIR/build/bin/llama-server" \
     --n-gpu-layers 99 \
     --ctx-size 8192 \
     --threads "$(nproc)" \
+    --reasoning-budget 0 \
     --log-disable
