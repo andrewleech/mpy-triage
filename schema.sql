@@ -134,6 +134,22 @@ CREATE TABLE IF NOT EXISTS assembled_xml (
     UNIQUE(repo, item_number, item_type)
 );
 
+-- Eval summaries (separate from production summaries)
+CREATE TABLE IF NOT EXISTS eval_summaries (
+    item_number INTEGER NOT NULL,
+    item_type TEXT NOT NULL,
+    repo TEXT NOT NULL,
+    model_id TEXT NOT NULL,
+    components TEXT,
+    item_category TEXT,
+    synopsis TEXT,
+    affected_code TEXT,
+    error_signatures TEXT,
+    concepts TEXT,
+    created_at TEXT,
+    UNIQUE(repo, item_number, item_type, model_id)
+);
+
 -- Embedding model metadata
 CREATE TABLE IF NOT EXISTS embedding_meta (
     key TEXT PRIMARY KEY,

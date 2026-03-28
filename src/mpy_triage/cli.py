@@ -379,3 +379,56 @@ def stats(ctx):
 
     click.echo(format_stats(db_stats))
     conn.close()
+
+
+@main.group("eval")
+@click.pass_context
+def eval_group(ctx):
+    """Evaluate summarization quality."""
+    pass
+
+
+@eval_group.command("compare")
+@click.option("--sample-size", "-n", type=int, default=50,
+              help="Number of items to compare.")
+@click.option("--local-url", required=True,
+              help="URL of local llama.cpp server.")
+@click.option("--local-model", default="qwen3.5-4b",
+              help="Model name for the local backend.")
+@click.option("--output", type=click.Path(), default=None,
+              help="Save detailed results to JSON file.")
+@click.pass_context
+def eval_compare(ctx, sample_size, local_url, local_model, output):
+    """Run pairwise Haiku vs local comparison with Opus judge."""
+    from .config import SummarizeConfig
+    from .db import get_connection, init_db
+    from .eval import format_eval_report, run_eval
+
+    config = _get_config_with_db(ctx)
+    conn = get_connection(config.db_path)
+    init_db(conn, config.schema_path)
+
+    local_config = SummarizeConfig(
+        backend="local", local_url=local_url,
+        local_model=local_model,
+    )
+
+    report = run_eval(conn, sample_size, local_config)
+
+    click.echo(format_eval_report(report))
+
+    if output:
+        import json
+        with open(output, "w") as f:
+            json.dump({
+                "sample_size": report.sample_size,
+                "haiku_wins": report.haiku_wins,
+                "local_wins": report.local_wins,
+                "ties": report.ties,
+                "haiku_avg_scores": report.haiku_avg_scores,
+                "local_avg_scores": report.local_avg_scores,
+                "per_item": report.per_item,
+            }, f, indent=2)
+        click.echo(f"\nDetailed results saved to {output}")
+
+    conn.close()

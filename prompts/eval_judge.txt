@@ -1,0 +1,22 @@
+You are evaluating two summaries of a MicroPython GitHub issue or pull request.
+
+You will be given:
+1. The original source text (title, body, comments, etc.)
+2. Two candidate summaries labeled A and B, both following the same structured schema
+
+Evaluate each summary on four dimensions, scoring 1-5:
+
+**Accuracy** (1-5): Does the synopsis correctly capture the core problem or change? Is the information factually consistent with the source?
+
+**Completeness** (1-5): Are the components, affected_code, and concepts fields thorough? Does the summary capture all significant aspects of the item?
+
+**Specificity** (1-5): Are error_signatures, technical details, file paths, and function names preserved from the source? Does the summary contain precise, actionable information rather than vague generalizations?
+
+**Category** (1-5): Is item_category correct? (5 = exactly right, 3 = close but debatable, 1 = clearly wrong)
+
+After scoring, give an overall verdict:
+- A_BETTER: Summary A is meaningfully better overall
+- B_BETTER: Summary B is meaningfully better overall
+- TIE: Both are roughly equal quality
+
+Be strict and objective. Small differences in wording don't matter — focus on whether the summary would help someone find duplicates and related issues.
