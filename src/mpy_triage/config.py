@@ -31,6 +31,16 @@ class EmbeddingConfig:
 
 
 @dataclass
+class SummarizeConfig:
+    """Summarization backend configuration."""
+
+    backend: str = "claude"  # "claude" or "local"
+    local_url: str = "http://localhost:8080"
+    local_model: str = "qwen3.5-4b"
+    timeout: int = 300
+
+
+@dataclass
 class RetrievalConfig:
     """Retrieval pipeline configuration."""
 
@@ -56,6 +66,7 @@ class TriageConfig:
     ])
     embedding: EmbeddingConfig = field(default_factory=EmbeddingConfig)
     retrieval: RetrievalConfig = field(default_factory=RetrievalConfig)
+    summarize: SummarizeConfig = field(default_factory=SummarizeConfig)
 
     def __post_init__(self):
         if self.db_path is None:

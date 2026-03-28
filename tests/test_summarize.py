@@ -3,7 +3,7 @@
 import json
 import os
 import subprocess
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from mpy_triage.config import clean_env as _clean_env
 from mpy_triage.summarize import (
@@ -267,4 +267,82 @@ class TestSummarizeItem:
 
     def test_missing_item_returns_none(self, tmp_db):
         result = summarize_item(tmp_db, "micropython/micropython", 999, "issue")
+        assert result is None
+
+
+class TestSummarizeViaLocal:
+    """Tests for the local HTTP backend."""
+
+    def test_successful_local_summarization(self, tmp_db):
+        _insert_issue(tmp_db)
+
+        openai_response = json.dumps({
+            "choices": [{"message": {"content": json.dumps(SAMPLE_HAIKU_OUTPUT)}}]
+        }).encode("utf-8")
+
+        from mpy_triage.config import SummarizeConfig
+
+        config = SummarizeConfig(
+            backend="local", local_url="http://localhost:9999",
+            local_model="test-model",
+        )
+
+        with patch("mpy_triage.summarize.urllib.request.urlopen") as mock_urlopen:
+            mock_resp = MagicMock()
+            mock_resp.read.return_value = openai_response
+            mock_resp.__enter__ = lambda s: s
+            mock_resp.__exit__ = MagicMock(return_value=False)
+            mock_urlopen.return_value = mock_resp
+
+            result = summarize_item(
+                tmp_db, "micropython/micropython", 42, "issue",
+                backend="local", summarize_config=config,
+            )
+
+        assert result is not None
+        assert result["synopsis"] == SAMPLE_HAIKU_OUTPUT["synopsis"]
+
+        row = tmp_db.execute(
+            "SELECT model_id FROM summaries WHERE item_number = 42"
+        ).fetchone()
+        assert row["model_id"] == "test-model"
+
+    def test_local_server_unreachable(self, tmp_db):
+        _insert_issue(tmp_db)
+
+        from mpy_triage.config import SummarizeConfig
+
+        config = SummarizeConfig(
+            backend="local", local_url="http://localhost:1",
+            local_model="test-model", timeout=2,
+        )
+
+        result = summarize_item(
+            tmp_db, "micropython/micropython", 42, "issue",
+            backend="local", summarize_config=config,
+        )
+        assert result is None
+
+    def test_local_invalid_json_response(self, tmp_db):
+        _insert_issue(tmp_db)
+
+        from mpy_triage.config import SummarizeConfig
+
+        config = SummarizeConfig(
+            backend="local", local_url="http://localhost:9999",
+            local_model="test-model",
+        )
+
+        with patch("mpy_triage.summarize.urllib.request.urlopen") as mock_urlopen:
+            mock_resp = MagicMock()
+            mock_resp.read.return_value = b"not json"
+            mock_resp.__enter__ = lambda s: s
+            mock_resp.__exit__ = MagicMock(return_value=False)
+            mock_urlopen.return_value = mock_resp
+
+            result = summarize_item(
+                tmp_db, "micropython/micropython", 42, "issue",
+                backend="local", summarize_config=config,
+            )
+
         assert result is None

@@ -113,10 +113,16 @@ def collect(ctx, repo):
 
 @main.command()
 @click.option("--repo", multiple=True, help="Repository to summarize.")
-@click.option("--concurrency", "-j", type=int, default=8, help="Concurrent subprocess calls.")
+@click.option("--concurrency", "-j", type=int, default=8,
+              help="Concurrent subprocess calls (claude backend only).")
+@click.option("--backend", type=click.Choice(["claude", "local"]), default=None,
+              help="Summarization backend (default: from config).")
+@click.option("--local-url", default=None,
+              help="URL of local llama.cpp server (e.g. http://step:8080).")
 @click.pass_context
-def summarize(ctx, repo, concurrency):
-    """Run Haiku summarization on issues and PRs."""
+def summarize(ctx, repo, concurrency, backend, local_url):
+    """Run LLM summarization on issues and PRs."""
+    from .config import SummarizeConfig
     from .db import get_connection, init_db
     from .summarize import summarize_all
 
@@ -124,10 +130,29 @@ def summarize(ctx, repo, concurrency):
     conn = get_connection(config.db_path)
     init_db(conn, config.schema_path)
 
+    sum_config = config.summarize
+    if backend:
+        sum_config = SummarizeConfig(
+            backend=backend,
+            local_url=local_url or sum_config.local_url,
+            local_model=sum_config.local_model,
+            timeout=sum_config.timeout,
+        )
+    elif local_url:
+        sum_config = SummarizeConfig(
+            backend="local",
+            local_url=local_url,
+            local_model=sum_config.local_model,
+            timeout=sum_config.timeout,
+        )
+
     repos = _get_repos(repo)
     for r in repos:
-        logger.info("Summarizing %s (concurrency=%d)", r, concurrency)
-        count = summarize_all(conn, r, concurrency=concurrency)
+        logger.info("Summarizing %s via %s backend", r, sum_config.backend)
+        count = summarize_all(
+            conn, r, concurrency=concurrency,
+            backend=sum_config.backend, summarize_config=sum_config,
+        )
         click.echo(f"{r}: summarized {count} items")
 
     conn.close()
@@ -178,7 +203,10 @@ def embed(ctx, force, batch_size):
     conn.close()
 
 
-def _triage_item(ctx, number, repo, item_type, skip_summarize, skip_assess, output_json):
+def _triage_item(
+    ctx, number, repo, item_type, skip_summarize, skip_assess, output_json,
+    backend=None, local_url=None,
+):
     """Shared implementation for issue and pr commands."""
     from .assemble import _assemble_and_store
     from .db import get_connection, init_db
@@ -212,10 +240,21 @@ def _triage_item(ctx, number, repo, item_type, skip_summarize, skip_assess, outp
             (repo, number, item_type),
         ).fetchone()
         if not existing:
+            from .config import SummarizeConfig
             from .summarize import summarize_item
 
-            logger.info("Summarizing %s #%d", item_type, number)
-            summarize_item(conn, repo, number, item_type)
+            sum_config = config.summarize
+            if backend or local_url:
+                sum_config = SummarizeConfig(
+                    backend=backend or ("local" if local_url else sum_config.backend),
+                    local_url=local_url or sum_config.local_url,
+                    local_model=sum_config.local_model,
+                    timeout=sum_config.timeout,
+                )
+            logger.info("Summarizing %s #%d via %s", item_type, number, sum_config.backend)
+            summarize_item(
+                conn, repo, number, item_type, summarize_config=sum_config,
+            )
 
     # Assemble and persist
     logger.info("Assembling %s #%d", item_type, number)
@@ -265,10 +304,16 @@ def _triage_item(ctx, number, repo, item_type, skip_summarize, skip_assess, outp
 @click.option("--skip-summarize", is_flag=True, help="Skip Haiku summarization.")
 @click.option("--skip-assess", is_flag=True, help="Skip Sonnet assessment.")
 @click.option("--json", "output_json", is_flag=True, help="JSON output.")
+@click.option("--backend", type=click.Choice(["claude", "local"]), default=None,
+              help="Summarization backend.")
+@click.option("--local-url", default=None, help="URL of local llama.cpp server.")
 @click.pass_context
-def issue(ctx, number, repo, skip_summarize, skip_assess, output_json):
+def issue(ctx, number, repo, skip_summarize, skip_assess, output_json, backend, local_url):
     """Triage an issue for duplicates and related items."""
-    _triage_item(ctx, number, repo, "issue", skip_summarize, skip_assess, output_json)
+    _triage_item(
+        ctx, number, repo, "issue", skip_summarize, skip_assess, output_json,
+        backend=backend, local_url=local_url,
+    )
 
 
 @main.command()
@@ -277,10 +322,16 @@ def issue(ctx, number, repo, skip_summarize, skip_assess, output_json):
 @click.option("--skip-summarize", is_flag=True, help="Skip Haiku summarization.")
 @click.option("--skip-assess", is_flag=True, help="Skip Sonnet assessment.")
 @click.option("--json", "output_json", is_flag=True, help="JSON output.")
+@click.option("--backend", type=click.Choice(["claude", "local"]), default=None,
+              help="Summarization backend.")
+@click.option("--local-url", default=None, help="URL of local llama.cpp server.")
 @click.pass_context
-def pr(ctx, number, repo, skip_summarize, skip_assess, output_json):
+def pr(ctx, number, repo, skip_summarize, skip_assess, output_json, backend, local_url):
     """Triage a PR for duplicates and related items."""
-    _triage_item(ctx, number, repo, "pull_request", skip_summarize, skip_assess, output_json)
+    _triage_item(
+        ctx, number, repo, "pull_request", skip_summarize, skip_assess, output_json,
+        backend=backend, local_url=local_url,
+    )
 
 
 @main.command()

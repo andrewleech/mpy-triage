@@ -1,13 +1,20 @@
-"""Stage 2: Haiku-based summarization of issues and PRs."""
+"""Stage 2: LLM-based summarization of issues and PRs.
+
+Supports two backends:
+- "claude": Uses claude --model haiku -p subprocess (default)
+- "local": Uses an OpenAI-compatible HTTP server (e.g. llama.cpp)
+"""
 
 import asyncio
 import json
 import logging
 import sqlite3
 import subprocess
+import urllib.error
+import urllib.request
 from datetime import datetime, timezone
 
-from .config import clean_env, get_config
+from .config import SummarizeConfig, clean_env, get_config
 
 logger = logging.getLogger(__name__)
 
@@ -206,6 +213,7 @@ def _store_summary(
     item_number: int,
     item_type: str,
     parsed: dict,
+    model_id: str = "haiku",
 ) -> None:
     """Write a parsed summary to the database."""
     now = datetime.now(timezone.utc).isoformat()
@@ -218,7 +226,7 @@ def _store_summary(
             item_number,
             item_type,
             repo,
-            "haiku",
+            model_id,
             json.dumps(parsed.get("components", [])),
             parsed.get("item_category", ""),
             parsed.get("synopsis", ""),
@@ -231,26 +239,15 @@ def _store_summary(
     conn.commit()
 
 
-def summarize_item(
-    conn: sqlite3.Connection,
-    repo: str,
-    item_number: int,
-    item_type: str,
+def _summarize_via_claude(
+    full_prompt: str, schema_json: str, item_type: str, item_number: int
 ) -> dict | None:
-    """Summarize a single item using claude --model haiku -p subprocess (synchronous)."""
-    full_prompt = _build_prompt(conn, repo, item_number, item_type)
-    if full_prompt is None:
-        logger.warning("No context found for %s #%d in %s", item_type, item_number, repo)
-        return None
-
-    schema_json = _get_json_schema()
+    """Call claude --model haiku -p subprocess. Returns parsed dict or None."""
     cmd = [
         "claude", "--model", "haiku", "-p",
         "--output-format", "json", "--json-schema", schema_json,
         "--no-session-persistence",
     ]
-
-    logger.debug("Invoking claude subprocess for %s #%d", item_type, item_number)
 
     try:
         result = subprocess.run(
@@ -266,7 +263,7 @@ def summarize_item(
             )
             return None
 
-        parsed = _parse_response(result.stdout)
+        return _parse_response(result.stdout)
     except subprocess.TimeoutExpired:
         logger.warning("claude subprocess timed out for %s #%d", item_type, item_number)
         return None
@@ -274,7 +271,82 @@ def summarize_item(
         logger.warning("Invalid JSON from claude for %s #%d: %s", item_type, item_number, e)
         return None
 
-    _store_summary(conn, repo, item_number, item_type, parsed)
+
+def _summarize_via_local(
+    full_prompt: str, config: SummarizeConfig, item_type: str, item_number: int
+) -> dict | None:
+    """Call a local OpenAI-compatible server. Returns parsed dict or None."""
+    url = f"{config.local_url.rstrip('/')}/v1/chat/completions"
+    body = json.dumps({
+        "model": config.local_model,
+        "messages": [{"role": "user", "content": full_prompt}],
+        "response_format": {
+            "type": "json_schema",
+            "json_schema": {"name": "summary", "schema": _JSON_SCHEMA},
+        },
+        "temperature": 0.1,
+    }).encode("utf-8")
+
+    req = urllib.request.Request(
+        url, data=body, headers={"Content-Type": "application/json"},
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=config.timeout) as resp:
+            response = json.loads(resp.read().decode("utf-8"))
+        content = response["choices"][0]["message"]["content"]
+        return json.loads(content)
+    except urllib.error.URLError as e:
+        logger.warning(
+            "Local server request failed for %s #%d: %s", item_type, item_number, e
+        )
+        return None
+    except (json.JSONDecodeError, KeyError, IndexError) as e:
+        logger.warning(
+            "Invalid response from local server for %s #%d: %s",
+            item_type, item_number, e,
+        )
+        return None
+
+
+def summarize_item(
+    conn: sqlite3.Connection,
+    repo: str,
+    item_number: int,
+    item_type: str,
+    *,
+    backend: str | None = None,
+    summarize_config: SummarizeConfig | None = None,
+) -> dict | None:
+    """Summarize a single item. Dispatches to claude or local backend."""
+    if summarize_config is None:
+        summarize_config = get_config().summarize
+    if backend is None:
+        backend = summarize_config.backend
+
+    full_prompt = _build_prompt(conn, repo, item_number, item_type)
+    if full_prompt is None:
+        logger.warning("No context found for %s #%d in %s", item_type, item_number, repo)
+        return None
+
+    logger.debug("Summarizing %s #%d via %s backend", item_type, item_number, backend)
+
+    if backend == "local":
+        parsed = _summarize_via_local(
+            full_prompt, summarize_config, item_type, item_number
+        )
+        model_id = summarize_config.local_model
+    else:
+        schema_json = _get_json_schema()
+        parsed = _summarize_via_claude(
+            full_prompt, schema_json, item_type, item_number
+        )
+        model_id = "haiku"
+
+    if parsed is None:
+        return None
+
+    _store_summary(conn, repo, item_number, item_type, parsed, model_id=model_id)
     return parsed
 
 
@@ -421,11 +493,79 @@ async def _summarize_all_async(
 
 
 def summarize_all(
-    conn: sqlite3.Connection, repo: str, *, concurrency: int = DEFAULT_CONCURRENCY
+    conn: sqlite3.Connection,
+    repo: str,
+    *,
+    concurrency: int = DEFAULT_CONCURRENCY,
+    backend: str | None = None,
+    summarize_config: SummarizeConfig | None = None,
 ) -> int:
     """Summarize all unsummarized items.
 
-    Uses concurrent subprocess calls for throughput.
-    Set concurrency=1 for sequential execution.
+    For claude backend, uses concurrent subprocess calls.
+    For local backend, uses sequential HTTP calls (single GPU).
     """
+    if summarize_config is None:
+        summarize_config = get_config().summarize
+    if backend is None:
+        backend = summarize_config.backend
+
+    if backend == "local":
+        return _summarize_all_local(conn, repo, summarize_config)
     return asyncio.run(_summarize_all_async(conn, repo, concurrency=concurrency))
+
+
+def _summarize_all_local(
+    conn: sqlite3.Connection, repo: str, config: SummarizeConfig
+) -> int:
+    """Sequential summarization via local HTTP server."""
+    from .db import set_sync_state
+
+    try:
+        from tqdm import tqdm
+    except ImportError:
+        tqdm = None
+
+    unsummarized_issues = conn.execute(
+        "SELECT i.number FROM issues i "
+        "LEFT JOIN summaries s ON s.repo = i.repo AND s.item_number = i.number "
+        "AND s.item_type = 'issue' "
+        "WHERE i.repo = ? AND s.item_number IS NULL",
+        (repo,),
+    ).fetchall()
+
+    unsummarized_prs = conn.execute(
+        "SELECT p.number FROM pull_requests p "
+        "LEFT JOIN summaries s ON s.repo = p.repo AND s.item_number = p.number "
+        "AND s.item_type = 'pull_request' "
+        "WHERE p.repo = ? AND s.item_number IS NULL",
+        (repo,),
+    ).fetchall()
+
+    items = [(row["number"], "issue") for row in unsummarized_issues] + [
+        (row["number"], "pull_request") for row in unsummarized_prs
+    ]
+
+    if not items:
+        return 0
+
+    count = 0
+    iterator = tqdm(items, desc="Summarizing (local)") if tqdm else items
+    for item_number, item_type in iterator:
+        try:
+            result = summarize_item(
+                conn, repo, item_number, item_type,
+                backend="local", summarize_config=config,
+            )
+            if result is not None:
+                count += 1
+        except Exception:
+            logger.warning(
+                "Error summarizing %s #%d, skipping",
+                item_type, item_number, exc_info=True,
+            )
+        set_sync_state(
+            conn, "summarize_checkpoint", f"{item_type}:{item_number}"
+        )
+
+    return count
