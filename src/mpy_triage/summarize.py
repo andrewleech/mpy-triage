@@ -1,5 +1,6 @@
 """Stage 2: Haiku-based summarization of issues and PRs."""
 
+import asyncio
 import json
 import logging
 import sqlite3
@@ -11,6 +12,7 @@ from .config import clean_env, get_config
 logger = logging.getLogger(__name__)
 
 TIMEOUT_SECONDS = 300
+DEFAULT_CONCURRENCY = 8
 
 _JSON_SCHEMA = {
     "type": "object",
@@ -175,69 +177,37 @@ def _build_context(
     return "\n".join(parts)
 
 
-def summarize_item(
-    conn: sqlite3.Connection,
-    repo: str,
-    item_number: int,
-    item_type: str,
-) -> dict | None:
-    """Summarize a single item using claude --model haiku -p subprocess."""
+def _build_prompt(
+    conn: sqlite3.Connection, repo: str, item_number: int, item_type: str
+) -> str | None:
+    """Build the full prompt for a single item. Returns None if no context."""
     context = _build_context(conn, repo, item_number, item_type)
     if not context:
-        logger.warning("No context found for %s #%d in %s", item_type, item_number, repo)
         return None
 
     config = get_config()
     prompt_path = config.prompts_dir / "summarize.txt"
     system_prompt = prompt_path.read_text()
+    return f"{system_prompt}\n\n--- Item ---\n{context}"
 
-    full_prompt = f"{system_prompt}\n\n--- Item ---\n{context}"
-    schema_json = _get_json_schema()
 
-    cmd = [
-        "claude",
-        "--model",
-        "haiku",
-        "-p",
-        "--output-format",
-        "json",
-        "--json-schema",
-        schema_json,
-        "--no-session-persistence",
-    ]
+def _parse_response(stdout: str) -> dict | None:
+    """Parse claude subprocess stdout into a summary dict."""
+    response = json.loads(stdout)
+    parsed = response if isinstance(response, dict) else {}
+    if "structured_output" in parsed:
+        parsed = parsed["structured_output"]
+    return parsed
 
-    logger.debug("Invoking claude subprocess for %s #%d", item_type, item_number)
 
-    try:
-        result = subprocess.run(
-            cmd,
-            input=full_prompt,
-            capture_output=True,
-            text=True,
-            timeout=TIMEOUT_SECONDS,
-            env=clean_env(),
-        )
-        if result.returncode != 0:
-            logger.warning(
-                "claude subprocess failed for %s #%d (rc=%d): stderr=%s stdout=%s",
-                item_type, item_number, result.returncode,
-                result.stderr[:500] if result.stderr else "(empty)",
-                result.stdout[:500] if result.stdout else "(empty)",
-            )
-            return None
-
-        response = json.loads(result.stdout)
-        parsed = response if isinstance(response, dict) else {}
-        if "structured_output" in parsed:
-            parsed = parsed["structured_output"]
-
-    except subprocess.TimeoutExpired:
-        logger.warning("claude subprocess timed out for %s #%d", item_type, item_number)
-        return None
-    except json.JSONDecodeError as e:
-        logger.warning("Invalid JSON from claude for %s #%d: %s", item_type, item_number, e)
-        return None
-
+def _store_summary(
+    conn: sqlite3.Connection,
+    repo: str,
+    item_number: int,
+    item_type: str,
+    parsed: dict,
+) -> None:
+    """Write a parsed summary to the database."""
     now = datetime.now(timezone.utc).isoformat()
     conn.execute(
         "INSERT OR REPLACE INTO summaries "
@@ -260,11 +230,116 @@ def summarize_item(
     )
     conn.commit()
 
+
+def summarize_item(
+    conn: sqlite3.Connection,
+    repo: str,
+    item_number: int,
+    item_type: str,
+) -> dict | None:
+    """Summarize a single item using claude --model haiku -p subprocess (synchronous)."""
+    full_prompt = _build_prompt(conn, repo, item_number, item_type)
+    if full_prompt is None:
+        logger.warning("No context found for %s #%d in %s", item_type, item_number, repo)
+        return None
+
+    schema_json = _get_json_schema()
+    cmd = [
+        "claude", "--model", "haiku", "-p",
+        "--output-format", "json", "--json-schema", schema_json,
+        "--no-session-persistence",
+    ]
+
+    logger.debug("Invoking claude subprocess for %s #%d", item_type, item_number)
+
+    try:
+        result = subprocess.run(
+            cmd, input=full_prompt, capture_output=True, text=True,
+            timeout=TIMEOUT_SECONDS, env=clean_env(),
+        )
+        if result.returncode != 0:
+            logger.warning(
+                "claude subprocess failed for %s #%d (rc=%d): stderr=%s stdout=%s",
+                item_type, item_number, result.returncode,
+                result.stderr[:500] if result.stderr else "(empty)",
+                result.stdout[:500] if result.stdout else "(empty)",
+            )
+            return None
+
+        parsed = _parse_response(result.stdout)
+    except subprocess.TimeoutExpired:
+        logger.warning("claude subprocess timed out for %s #%d", item_type, item_number)
+        return None
+    except json.JSONDecodeError as e:
+        logger.warning("Invalid JSON from claude for %s #%d: %s", item_type, item_number, e)
+        return None
+
+    _store_summary(conn, repo, item_number, item_type, parsed)
     return parsed
 
 
-def summarize_all(conn: sqlite3.Connection, repo: str) -> int:
-    """Summarize all unsummarized items. Returns count processed."""
+async def _summarize_item_async(
+    repo: str,
+    item_number: int,
+    item_type: str,
+    full_prompt: str,
+    schema_json: str,
+    env: dict,
+) -> tuple[int, str, dict | None]:
+    """Run a single claude subprocess asynchronously.
+
+    Returns (item_number, item_type, parsed_dict_or_None).
+    """
+    cmd = [
+        "claude", "--model", "haiku", "-p",
+        "--output-format", "json", "--json-schema", schema_json,
+        "--no-session-persistence",
+    ]
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=env,
+        )
+        stdout_bytes, stderr_bytes = await asyncio.wait_for(
+            proc.communicate(input=full_prompt.encode("utf-8")),
+            timeout=TIMEOUT_SECONDS,
+        )
+        stdout = stdout_bytes.decode("utf-8", errors="replace")
+        stderr = stderr_bytes.decode("utf-8", errors="replace")
+
+        if proc.returncode != 0:
+            logger.warning(
+                "claude subprocess failed for %s #%d (rc=%d): stderr=%s stdout=%s",
+                item_type, item_number, proc.returncode,
+                stderr[:500] if stderr else "(empty)",
+                stdout[:500] if stdout else "(empty)",
+            )
+            return (item_number, item_type, None)
+
+        parsed = _parse_response(stdout)
+        return (item_number, item_type, parsed)
+
+    except asyncio.TimeoutError:
+        logger.warning("claude subprocess timed out for %s #%d", item_type, item_number)
+        return (item_number, item_type, None)
+    except json.JSONDecodeError as e:
+        logger.warning("Invalid JSON from claude for %s #%d: %s", item_type, item_number, e)
+        return (item_number, item_type, None)
+    except Exception as e:
+        logger.warning("Error summarizing %s #%d: %s", item_type, item_number, e)
+        return (item_number, item_type, None)
+
+
+async def _summarize_all_async(
+    conn: sqlite3.Connection,
+    repo: str,
+    concurrency: int = DEFAULT_CONCURRENCY,
+) -> int:
+    """Summarize unsummarized items with concurrent subprocess calls."""
     from .db import set_sync_state
 
     try:
@@ -295,17 +370,62 @@ def summarize_all(conn: sqlite3.Connection, repo: str) -> int:
     if not items:
         return 0
 
+    logger.info(
+        "Summarizing %d items with concurrency=%d", len(items), concurrency
+    )
+
+    # Pre-build all prompts (DB reads are fast and must be on main thread).
+    schema_json = _get_json_schema()
+    env = clean_env()
+    work: list[tuple[int, str, str]] = []  # (item_number, item_type, prompt)
+    for item_number, item_type in items:
+        prompt = _build_prompt(conn, repo, item_number, item_type)
+        if prompt is not None:
+            work.append((item_number, item_type, prompt))
+        else:
+            logger.warning("No context for %s #%d, skipping", item_type, item_number)
+
+    semaphore = asyncio.Semaphore(concurrency)
     count = 0
-    iterator = tqdm(items, desc="Summarizing") if tqdm else items
-    for item_number, item_type in iterator:
-        try:
-            result = summarize_item(conn, repo, item_number, item_type)
-            if result is not None:
-                count += 1
-        except Exception:
-            logger.warning(
-                "Error summarizing %s #%d, skipping", item_type, item_number, exc_info=True
+    pbar = tqdm(total=len(work), desc="Summarizing") if tqdm else None
+
+    async def _run_one(item_number: int, item_type: str, prompt: str):
+        async with semaphore:
+            return await _summarize_item_async(
+                repo, item_number, item_type, prompt, schema_json, env
             )
-        set_sync_state(conn, "summarize_checkpoint", f"{item_type}:{item_number}")
+
+    # Process in batches to avoid unbounded task creation and allow periodic DB writes.
+    batch_size = concurrency * 4
+    for batch_start in range(0, len(work), batch_size):
+        batch = work[batch_start:batch_start + batch_size]
+        tasks = [_run_one(n, t, p) for n, t, p in batch]
+        results = await asyncio.gather(*tasks)
+
+        for item_number, item_type, parsed in results:
+            if parsed is not None:
+                _store_summary(conn, repo, item_number, item_type, parsed)
+                count += 1
+            if pbar:
+                pbar.update(1)
+
+        set_sync_state(
+            conn, "summarize_checkpoint",
+            f"{batch[-1][1]}:{batch[-1][0]}"
+        )
+
+    if pbar:
+        pbar.close()
 
     return count
+
+
+def summarize_all(
+    conn: sqlite3.Connection, repo: str, *, concurrency: int = DEFAULT_CONCURRENCY
+) -> int:
+    """Summarize all unsummarized items.
+
+    Uses concurrent subprocess calls for throughput.
+    Set concurrency=1 for sequential execution.
+    """
+    return asyncio.run(_summarize_all_async(conn, repo, concurrency=concurrency))

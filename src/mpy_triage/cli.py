@@ -113,8 +113,9 @@ def collect(ctx, repo):
 
 @main.command()
 @click.option("--repo", multiple=True, help="Repository to summarize.")
+@click.option("--concurrency", "-j", type=int, default=8, help="Concurrent subprocess calls.")
 @click.pass_context
-def summarize(ctx, repo):
+def summarize(ctx, repo, concurrency):
     """Run Haiku summarization on issues and PRs."""
     from .db import get_connection, init_db
     from .summarize import summarize_all
@@ -125,8 +126,8 @@ def summarize(ctx, repo):
 
     repos = _get_repos(repo)
     for r in repos:
-        logger.info("Summarizing %s", r)
-        count = summarize_all(conn, r)
+        logger.info("Summarizing %s (concurrency=%d)", r, concurrency)
+        count = summarize_all(conn, r, concurrency=concurrency)
         click.echo(f"{r}: summarized {count} items")
 
     conn.close()
