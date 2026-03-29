@@ -13,6 +13,11 @@ from .config import EmbeddingConfig, get_config
 
 logger = logging.getLogger(__name__)
 
+# Truncate input text to this many characters before tokenization.
+# Prevents OOM on long assembled XML (73K+ chars = 20K+ tokens).
+# ~4 chars/token average, 8192 tokens * 4 = ~32K chars is safe for 4GB VRAM.
+MAX_TEXT_CHARS = 32000
+
 
 class Embedder:
     """Model-agnostic embedding wrapper with lazy loading."""
@@ -54,6 +59,7 @@ class Embedder:
         prefix = self._config.document_prefix
         if prefix:
             texts = [prefix + t for t in texts]
+        texts = [t[:MAX_TEXT_CHARS] for t in texts]
         return self._model.encode(
             texts,
             batch_size=batch_size,
