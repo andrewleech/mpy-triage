@@ -258,3 +258,86 @@ def test_assemble_all_updates_on_change(tmp_db):
         " WHERE item_number = 1 AND item_type = 'issue'"
     ).fetchone()
     assert "Updated title" in row["xml_text"]
+
+
+# --- Budget and diff filtering tests ---
+
+
+def test_build_diff_section_levels():
+    from mpy_triage.assemble import DiffFile, _build_diff_section
+
+    files = [
+        DiffFile("ports/stm32/spi.c", 10, 5, ["spi_init", "spi_transfer"]),
+        DiffFile("ports/stm32/dma.c", 3, 1, ["dma_config"]),
+    ]
+
+    # Level 0: full detail
+    l0 = _build_diff_section(files, 0)
+    assert 'path="ports/stm32/spi.c"' in l0
+    assert "spi_init" in l0
+    assert 'additions="10"' in l0
+
+    # Level 1: no functions
+    l1 = _build_diff_section(files, 1)
+    assert 'path="ports/stm32/spi.c"' in l1
+    assert "spi_init" not in l1
+    assert 'additions="10"' in l1
+
+    # Level 2: path only
+    l2 = _build_diff_section(files, 2)
+    assert 'path="ports/stm32/spi.c"' in l2
+    assert "additions" not in l2
+
+    # Level 3: directories only
+    l3 = _build_diff_section(files, 3)
+    assert "ports/stm32" in l3
+    assert "spi.c" not in l3
+
+    # Level 4: empty
+    l4 = _build_diff_section(files, 4)
+    assert l4 == ""
+
+    # Each level is smaller or equal
+    assert len(l1) <= len(l0)
+    assert len(l2) <= len(l1)
+    assert len(l3) <= len(l2)
+
+
+def test_budget_enforced_large_diff(tmp_db):
+    from mpy_triage.assemble import MAX_XML_CHARS
+
+    # PR with 300 diff files
+    diff_lines = []
+    for i in range(300):
+        diff_lines.append(f"diff --git a/file{i}.c b/file{i}.c")
+        diff_lines.append(f"--- a/file{i}.c")
+        diff_lines.append(f"+++ b/file{i}.c")
+        diff_lines.append(f"@@ -1,3 +1,4 @@ void func_{i}(void) {{")
+        diff_lines.append(f"+    line {i}")
+    _insert_pr(tmp_db, number=999, diff_text="\n".join(diff_lines))
+
+    xml = assemble_item(tmp_db, "micropython/micropython", 999, "pull_request")
+    assert len(xml) <= MAX_XML_CHARS
+
+
+def test_budget_enforced_long_body(tmp_db):
+    from mpy_triage.assemble import MAX_XML_CHARS
+
+    long_body = "x" * 50000
+    _insert_issue(tmp_db, number=888, body=long_body)
+
+    xml = assemble_item(tmp_db, "micropython/micropython", 888, "issue")
+    assert len(xml) <= MAX_XML_CHARS
+    assert "<title>" in xml
+    assert "<description>" in xml
+
+
+def test_summary_never_truncated(tmp_db):
+    long_body = "y" * 50000
+    _insert_issue(tmp_db, number=777, body=long_body)
+    _insert_summary(tmp_db, 777, "issue")
+
+    xml = assemble_item(tmp_db, "micropython/micropython", 777, "issue")
+    assert "<summary>" in xml
+    assert "<synopsis>SPI DMA fails on STM32F4</synopsis>" in xml
+    assert "</summary>" in xml

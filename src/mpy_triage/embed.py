@@ -13,10 +13,9 @@ from .config import EmbeddingConfig, get_config
 
 logger = logging.getLogger(__name__)
 
-# Truncate input text to this many characters before tokenization.
-# Prevents OOM on long assembled XML (73K+ chars = 20K+ tokens).
-# ~4 chars/token average, 8192 tokens * 4 = ~32K chars is safe for 4GB VRAM.
-MAX_TEXT_CHARS = 4000
+# Safety truncation for texts that somehow exceed the assembler's budget.
+# The assembler targets 8K chars; this is a backstop.
+MAX_TEXT_CHARS = 10000
 
 
 class Embedder:

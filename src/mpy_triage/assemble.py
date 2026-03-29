@@ -3,9 +3,16 @@
 import datetime
 import hashlib
 import json
+import logging
 import re
 import sqlite3
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
+
+# Target budget for assembled XML. Prevents GPU OOM during embedding
+# by keeping input text within ~2K tokens for the embedding model.
+MAX_XML_CHARS = 8000
 
 
 @dataclass
@@ -81,13 +88,90 @@ def _parse_json_list(raw: str | None) -> list[str]:
         return []
 
 
+def _build_diff_section(diff_files: list[DiffFile], level: int) -> str:
+    """Build diff_files XML at a given detail level.
+
+    Level 0: Full (path + stats + functions)
+    Level 1: Path + stats, no functions
+    Level 2: Path only
+    Level 3: Unique directory prefixes only
+    Level 4: Empty (drop diff_files entirely)
+    """
+    if level >= 4 or not diff_files:
+        return ""
+
+    lines = ["<diff_files>"]
+
+    if level == 3:
+        dirs = sorted({
+            df.path.rsplit("/", 1)[0] if "/" in df.path else "."
+            for df in diff_files
+        })
+        lines.append(f"<directories>{', '.join(dirs)}</directories>")
+    else:
+        for df in diff_files:
+            if level == 0:
+                funcs = ", ".join(df.functions)
+                lines.append(
+                    f'<file path="{df.path}"'
+                    f' additions="{df.additions}"'
+                    f' deletions="{df.deletions}">'
+                )
+                lines.append(f"<functions>{funcs}</functions>")
+                lines.append("</file>")
+            elif level == 1:
+                lines.append(
+                    f'<file path="{df.path}"'
+                    f' additions="{df.additions}"'
+                    f' deletions="{df.deletions}"/>'
+                )
+            elif level == 2:
+                lines.append(f'<file path="{df.path}"/>')
+
+    lines.append("</diff_files>")
+    return "\n".join(lines)
+
+
+def _build_summary_section(
+    conn: sqlite3.Connection, repo: str, item_number: int, item_type: str
+) -> str:
+    """Build the <summary> section from Haiku output, or empty string."""
+    summary_row = conn.execute(
+        "SELECT * FROM summaries"
+        " WHERE repo = ? AND item_number = ? AND item_type = ?",
+        (repo, item_number, item_type),
+    ).fetchone()
+    if not summary_row:
+        return ""
+
+    components = _parse_json_list(summary_row["components"])
+    affected = _parse_json_list(summary_row["affected_code"])
+    concepts = _parse_json_list(summary_row["concepts"])
+
+    lines = [
+        "<summary>",
+        f"<components>{', '.join(components)}</components>",
+        f"<type>{summary_row['item_category'] or ''}</type>",
+        f"<synopsis>{summary_row['synopsis'] or ''}</synopsis>",
+        f"<affected_code>{', '.join(affected)}</affected_code>",
+        f"<error_signatures>{summary_row['error_signatures'] or ''}</error_signatures>",
+        f"<concepts>{', '.join(concepts)}</concepts>",
+        "</summary>",
+    ]
+    return "\n".join(lines)
+
+
 def assemble_item(
     conn: sqlite3.Connection,
     repo: str,
     item_number: int,
     item_type: str,
 ) -> str:
-    """Build XML for a single item. Works with or without Haiku summary."""
+    """Build XML for a single item, kept within MAX_XML_CHARS budget.
+
+    Priority: title + labels + summary always full.
+    diff_files progressively reduced. Description truncated last.
+    """
     if item_type == "issue":
         table = "issues"
         tag = "issue"
@@ -109,72 +193,65 @@ def assemble_item(
     body = row["body"] or ""
     labels_str = ", ".join(_parse_json_list(row["labels"]))
 
-    parts = [
-        f'<{tag} number="{item_number}" repo="{repo}">',
-        f"<title>{_cdata_wrap(title)}</title>",
-        f"<description>{_cdata_wrap(body)}</description>",
-        f"<labels>{labels_str}</labels>",
-    ]
+    # Fixed parts: always included at full fidelity
+    tag_open = f'<{tag} number="{item_number}" repo="{repo}">'
+    title_xml = f"<title>{_cdata_wrap(title)}</title>"
+    labels_xml = f"<labels>{labels_str}</labels>"
+    summary_xml = _build_summary_section(conn, repo, item_number, item_type)
+    tag_close = f"</{tag}>"
 
-    # For PRs, include diff_files section
+    fixed = "\n".join(
+        p for p in [tag_open, title_xml, labels_xml, summary_xml, tag_close] if p
+    )
+    fixed_size = len(fixed)
+
+    # Parse diff files for PRs
+    diff_files: list[DiffFile] = []
     if item_type == "pull_request":
         diff_row = conn.execute(
-            "SELECT diff_text FROM pr_diffs"
-            " WHERE repo = ? AND pr_number = ?",
+            "SELECT diff_text FROM pr_diffs WHERE repo = ? AND pr_number = ?",
             (repo, item_number),
         ).fetchone()
         if diff_row and diff_row["diff_text"]:
             diff_files = parse_diff_files(diff_row["diff_text"])
-            if diff_files:
-                parts.append("<diff_files>")
-                for df in diff_files:
-                    funcs_str = ", ".join(df.functions)
-                    parts.append(
-                        f'<file path="{df.path}"'
-                        f' additions="{df.additions}"'
-                        f' deletions="{df.deletions}">'
-                    )
-                    parts.append(
-                        f"<functions>{funcs_str}</functions>"
-                    )
-                    parts.append("</file>")
-                parts.append("</diff_files>")
 
-    # Check for Haiku summary
-    summary_row = conn.execute(
-        "SELECT * FROM summaries"
-        " WHERE repo = ? AND item_number = ? AND item_type = ?",
-        (repo, item_number, item_type),
-    ).fetchone()
-    if summary_row:
-        components = _parse_json_list(summary_row["components"])
-        affected = _parse_json_list(summary_row["affected_code"])
-        concepts = _parse_json_list(summary_row["concepts"])
+    remaining = MAX_XML_CHARS - fixed_size
 
-        parts.append("<summary>")
-        parts.append(
-            f"<components>{', '.join(components)}</components>"
-        )
-        parts.append(
-            f"<type>{summary_row['item_category'] or ''}</type>"
-        )
-        parts.append(
-            f"<synopsis>{summary_row['synopsis'] or ''}</synopsis>"
-        )
-        parts.append(
-            f"<affected_code>{', '.join(affected)}</affected_code>"
-        )
-        parts.append(
-            "<error_signatures>"
-            f"{summary_row['error_signatures'] or ''}"
-            "</error_signatures>"
-        )
-        parts.append(
-            f"<concepts>{', '.join(concepts)}</concepts>"
-        )
-        parts.append("</summary>")
+    # Find the most detailed diff level that fits alongside description
+    diff_xml = ""
+    desc_xml = f"<description>{_cdata_wrap(body)}</description>"
 
-    parts.append(f"</{tag}>")
+    if diff_files:
+        for level in range(5):
+            candidate_diff = _build_diff_section(diff_files, level)
+            if len(candidate_diff) + len(desc_xml) <= remaining:
+                diff_xml = candidate_diff
+                break
+            # If diff at this level + full description doesn't fit,
+            # try truncating description with this diff level
+            diff_size = len(candidate_diff)
+            desc_budget = remaining - diff_size - len("<description></description>") - 20
+            if desc_budget > 200:
+                truncated_body = body[:desc_budget]
+                desc_xml = f"<description>{_cdata_wrap(truncated_body)}</description>"
+                diff_xml = candidate_diff
+                break
+        else:
+            # All diff levels exhausted, drop diff entirely
+            diff_xml = ""
+    elif len(desc_xml) > remaining:
+        # No diff, but description alone exceeds budget
+        desc_budget = remaining - len("<description></description>") - 20
+        truncated_body = body[:max(200, desc_budget)]
+        desc_xml = f"<description>{_cdata_wrap(truncated_body)}</description>"
+
+    # Assemble final XML
+    parts = [tag_open, title_xml, desc_xml, labels_xml]
+    if diff_xml:
+        parts.append(diff_xml)
+    if summary_xml:
+        parts.append(summary_xml)
+    parts.append(tag_close)
     return "\n".join(parts)
 
 
@@ -207,7 +284,11 @@ def _assemble_and_store(
     item_number: int,
     item_type: str,
 ) -> bool:
-    """Assemble XML for one item, store if changed. Return True if new/updated."""
+    """Assemble XML for one item, store if changed. Return True if new/updated.
+
+    When XML changes, stale embeddings in vec_items and item_fts are deleted
+    so index_all will re-embed the item.
+    """
     xml_text = assemble_item(conn, repo, item_number, item_type)
     xml_hash = hashlib.sha256(xml_text.encode("utf-8")).hexdigest()
 
@@ -238,5 +319,22 @@ def _assemble_and_store(
             now,
         ),
     )
+
+    # Delete stale embeddings so index_all re-embeds this item.
+    if existing:
+        try:
+            conn.execute(
+                "DELETE FROM vec_items"
+                " WHERE item_number = ? AND item_type = ? AND repo = ?",
+                (item_number, item_type, repo),
+            )
+            conn.execute(
+                "DELETE FROM item_fts"
+                " WHERE item_number = ? AND item_type = ? AND repo = ?",
+                (str(item_number), item_type, repo),
+            )
+        except Exception:
+            pass  # Tables may not exist yet
+
     conn.commit()
     return True
