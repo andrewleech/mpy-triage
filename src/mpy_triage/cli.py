@@ -346,6 +346,51 @@ def pr(ctx, number, repo, skip_summarize, skip_assess, output_json, backend, loc
 
 
 @main.command()
+@click.option("--repo", multiple=True)
+@click.option("--min-score", type=float, default=0.01, help="Minimum value score.")
+@click.option("--top-k", type=int, default=5, help="Candidates per query item.")
+@click.option("--skip-rerank", is_flag=True, help="Skip cross-encoder (faster).")
+@click.option("--top-n", type=int, default=50, help="Top discoveries to show.")
+@click.option("--output", type=click.Path(), default=None, help="Save full results to JSON.")
+@click.pass_context
+def scan(ctx, repo, min_score, top_k, skip_rerank, top_n, output):
+    """Scan all open issues for related/duplicate items."""
+    from .db import get_connection, init_db, load_vec_extension
+    from .embed import Embedder
+    from .scan import format_scan_report, scan_open_issues
+    from .search import Reranker
+
+    config = _get_config_with_db(ctx)
+    conn = get_connection(config.db_path)
+    init_db(conn, config.schema_path)
+    load_vec_extension(conn)
+
+    embedder = Embedder(config.embedding)
+    reranker = None if skip_rerank else Reranker(config.retrieval.reranker_model)
+
+    repos = _get_repos(repo)
+    all_results = []
+    for r in repos:
+        results = scan_open_issues(
+            conn, embedder, reranker,
+            repo=r, min_score=min_score, top_k=top_k,
+            skip_rerank=skip_rerank,
+        )
+        all_results.extend(results)
+
+    all_results.sort(key=lambda x: -x["value_score"])
+    click.echo(format_scan_report(all_results, top_n=top_n))
+
+    if output:
+        import json
+        with open(output, "w") as f:
+            json.dump(all_results, f, indent=2)
+        click.echo(f"\nFull results ({len(all_results)} items) saved to {output}")
+
+    conn.close()
+
+
+@main.command()
 @click.pass_context
 def stats(ctx):
     """Show database and index statistics."""

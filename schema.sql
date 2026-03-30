@@ -150,6 +150,22 @@ CREATE TABLE IF NOT EXISTS eval_summaries (
     UNIQUE(repo, item_number, item_type, model_id)
 );
 
+-- Scan results (batch discovery of related/duplicate items)
+CREATE TABLE IF NOT EXISTS scan_results (
+    query_number INTEGER NOT NULL,
+    query_type TEXT NOT NULL,
+    query_repo TEXT NOT NULL,
+    candidate_number INTEGER NOT NULL,
+    candidate_type TEXT NOT NULL,
+    candidate_repo TEXT NOT NULL,
+    candidate_state TEXT,
+    rerank_score REAL,
+    value_score REAL,
+    scanned_at TEXT,
+    UNIQUE(query_repo, query_number, query_type,
+           candidate_repo, candidate_number, candidate_type)
+);
+
 -- Embedding model metadata
 CREATE TABLE IF NOT EXISTS embedding_meta (
     key TEXT PRIMARY KEY,

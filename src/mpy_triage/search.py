@@ -201,6 +201,7 @@ def search(
     config: RetrievalConfig | None = None,
     exclude: tuple[int, str] | None = None,
     reranker: Reranker | None = None,
+    skip_rerank: bool = False,
 ) -> list[dict]:
     """Full search pipeline: embed, dense + sparse, RRF, rerank.
 
@@ -208,6 +209,7 @@ def search(
         exclude: Optional (item_number, repo) tuple to exclude from results
             (typically the query item itself).
         reranker: Optional pre-loaded Reranker instance for caching across calls.
+        skip_rerank: If True, skip cross-encoder reranking (faster, less accurate).
     """
     if config is None:
         config = get_config().retrieval
@@ -233,7 +235,7 @@ def search(
     for candidate in merged:
         candidate["content"] = _fetch_content(conn, candidate)
 
-    if merged:
+    if merged and not skip_rerank:
         if reranker is None:
             reranker = Reranker(config.reranker_model)
         merged = reranker.rerank(query_text, merged, top_k=config.top_k_rerank)
