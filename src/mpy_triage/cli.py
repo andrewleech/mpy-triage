@@ -210,7 +210,12 @@ def _triage_item(
     """Shared implementation for issue and pr commands."""
     from .assemble import _assemble_and_store
     from .db import get_connection, init_db, load_vec_extension
-    from .format import format_human, format_json
+    from .format import (
+        format_candidates_human,
+        format_candidates_json,
+        format_human,
+        format_json,
+    )
 
     config = _get_config_with_db(ctx)
     conn = get_connection(config.db_path)
@@ -291,7 +296,12 @@ def _triage_item(
         )
 
     # Format output
-    if output_json:
+    if skip_assess:
+        if output_json:
+            click.echo(format_candidates_json(query_item, candidates))
+        else:
+            click.echo(format_candidates_human(query_item, candidates))
+    elif output_json:
         click.echo(format_json(query_item, assessments))
     else:
         click.echo(format_human(query_item, assessments))

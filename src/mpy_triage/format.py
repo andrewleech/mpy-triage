@@ -47,6 +47,75 @@ def format_human(query_item: dict, assessments: list[Assessment]) -> str:
     return "\n".join(lines)
 
 
+def format_candidates_human(query_item: dict, candidates: list[dict]) -> str:
+    """Format raw search candidates (no assessment) for terminal output."""
+    repo = query_item["repo"]
+    number = query_item["number"]
+    title = query_item["title"]
+    item_type = query_item.get("item_type", "issue")
+    url = github_url(repo, item_type, number)
+
+    lines = [
+        f"Searching for similar items to: {repo}#{number}",
+        f'  "{title}"',
+        f"  {url}",
+        "",
+    ]
+
+    if not candidates:
+        lines.append("No similar items found.")
+        return "\n".join(lines)
+
+    lines.append(f"Found {len(candidates)} candidates (unassessed):")
+    lines.append("")
+
+    for c in candidates:
+        c_number = c.get("item_number", c.get("number", "?"))
+        c_type = c.get("item_type", "issue")
+        c_repo = c.get("repo", repo)
+        c_url = github_url(c_repo, c_type, c_number)
+        score = c.get("rerank_score") or c.get("rrf_score") or c.get("score", 0)
+
+        lines.append(f"#{c_number} [score: {score:.4f}]")
+        lines.append(f"  {c_url}")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+def format_candidates_json(query_item: dict, candidates: list[dict]) -> str:
+    """Format raw search candidates as JSON."""
+    repo = query_item["repo"]
+    number = query_item["number"]
+    title = query_item["title"]
+    item_type = query_item.get("item_type", "issue")
+
+    result = {
+        "query": {
+            "repo": repo,
+            "number": number,
+            "title": title,
+            "item_type": item_type,
+            "url": github_url(repo, item_type, number),
+        },
+        "candidates": [
+            {
+                "item_number": c.get("item_number", c.get("number")),
+                "item_type": c.get("item_type", "issue"),
+                "repo": c.get("repo", repo),
+                "score": c.get("rerank_score") or c.get("rrf_score") or c.get("score", 0),
+                "url": github_url(
+                    c.get("repo", repo),
+                    c.get("item_type", "issue"),
+                    c.get("item_number", c.get("number", 0)),
+                ),
+            }
+            for c in candidates
+        ],
+    }
+    return json.dumps(result, indent=2)
+
+
 def format_json(query_item: dict, assessments: list[Assessment]) -> str:
     """Format triage results as JSON."""
     repo = query_item["repo"]
