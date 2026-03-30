@@ -142,6 +142,34 @@ def _get_indexed_keys(conn: sqlite3.Connection) -> set[tuple[int, str, str]]:
         return set()
 
 
+# Target total characters per batch. Items are grouped so that the sum
+# of their text lengths stays near this budget, giving large batches for
+# small items and batch_size=1 for items near MAX_TEXT_CHARS.
+BATCH_CHAR_BUDGET = 8000
+
+
+def _make_batches(rows: list, char_budget: int = BATCH_CHAR_BUDGET) -> list[list]:
+    """Group rows into batches whose total text length fits within budget."""
+    # Sort by text length so similarly-sized items are batched together.
+    sorted_rows = sorted(rows, key=lambda r: len(r[3] or ""))
+    batches: list[list] = []
+    current: list = []
+    current_chars = 0
+
+    for row in sorted_rows:
+        text_len = len(row[3] or "")
+        if current and current_chars + text_len > char_budget:
+            batches.append(current)
+            current = []
+            current_chars = 0
+        current.append(row)
+        current_chars += text_len
+
+    if current:
+        batches.append(current)
+    return batches
+
+
 def index_all(
     conn: sqlite3.Connection,
     embedder: Embedder,
@@ -151,10 +179,13 @@ def index_all(
 ) -> int:
     """Embed and index all assembled XML. Resume-capable.
 
+    Batches are sized automatically based on text length to avoid GPU OOM.
+    The batch_size parameter is used as a fallback cap per batch.
+
     Args:
         conn: SQLite connection (must have sqlite-vec loaded and tables created).
         embedder: Embedder instance for generating vectors.
-        batch_size: Number of items to embed per batch.
+        batch_size: Maximum items per batch (overridden by char budget).
         gc_interval: Run gc.collect() every this many batches.
 
     Returns:
@@ -162,9 +193,16 @@ def index_all(
     """
     already_indexed = _get_indexed_keys(conn)
 
+    # Some xml_text may contain replacement chars from binary diffs.
+    # Use a cursor with permissive text decoding to avoid errors.
+    old_factory = conn.text_factory
+    conn.text_factory = lambda b: (
+        b.decode("utf-8", errors="replace") if isinstance(b, bytes) else b
+    )
     rows = conn.execute(
         "SELECT item_number, item_type, repo, xml_text FROM assembled_xml"
     ).fetchall()
+    conn.text_factory = old_factory
 
     to_index = [
         r for r in rows if (r[0], r[1], r[2]) not in already_indexed
@@ -176,14 +214,21 @@ def index_all(
 
     logger.info("Indexing %d items (%d already indexed)", len(to_index), len(already_indexed))
 
+    batches = _make_batches(to_index)
+    logger.info(
+        "%d batches (sizes: %d-%d items)",
+        len(batches),
+        min(len(b) for b in batches),
+        max(len(b) for b in batches),
+    )
+
     count = 0
     batch_count = 0
 
-    for i in tqdm(range(0, len(to_index), batch_size), desc="Indexing", disable=None):
-        batch = to_index[i : i + batch_size]
-        texts = [r[3] or "" for r in batch]
+    for batch in tqdm(batches, desc="Indexing", disable=None):
+        texts = [(r[3] or "")[:MAX_TEXT_CHARS] for r in batch]
 
-        embeddings = embedder.encode_documents(texts, batch_size=batch_size)
+        embeddings = embedder.encode_documents(texts, batch_size=len(batch))
 
         for j, row in enumerate(batch):
             item_number, item_type, repo, xml_text = row[0], row[1], row[2], row[3]
