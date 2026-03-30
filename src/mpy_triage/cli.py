@@ -209,12 +209,13 @@ def _triage_item(
 ):
     """Shared implementation for issue and pr commands."""
     from .assemble import _assemble_and_store
-    from .db import get_connection, init_db
+    from .db import get_connection, init_db, load_vec_extension
     from .format import format_human, format_json
 
     config = _get_config_with_db(ctx)
     conn = get_connection(config.db_path)
     init_db(conn, config.schema_path)
+    load_vec_extension(conn)
 
     # Fetch the target item
     if item_type == "issue":
