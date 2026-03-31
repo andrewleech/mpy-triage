@@ -22,7 +22,7 @@ print("Fast scan (RRF only, no rerank)...", flush=True)
 results = scan_open_issues(
     conn, embedder, None,
     repo="micropython/micropython",
-    min_score=0.005,
+    min_score=0.06,
     top_k=5,
     skip_rerank=True,
 )
