@@ -390,6 +390,35 @@ def scan(ctx, repo, min_score, top_k, skip_rerank, top_n, output):
     conn.close()
 
 
+@main.command("export")
+@click.option("--format", "fmt", type=click.Choice(["csv", "markdown"]), default="markdown")
+@click.option("--output", "-o", type=click.Path(), default=None,
+              help="Output file (default: stdout).")
+@click.pass_context
+def export_cmd(ctx, fmt, output):
+    """Export scan results as CSV or Markdown."""
+    from .db import get_connection, init_db
+    from .export import export_csv, export_markdown
+
+    config = _get_config_with_db(ctx)
+    conn = get_connection(config.db_path)
+    init_db(conn, config.schema_path)
+
+    if fmt == "csv":
+        text = export_csv(conn)
+    else:
+        text = export_markdown(conn)
+
+    if output:
+        with open(output, "w") as f:
+            f.write(text)
+        click.echo(f"Exported to {output}")
+    else:
+        click.echo(text)
+
+    conn.close()
+
+
 @main.command()
 @click.pass_context
 def stats(ctx):

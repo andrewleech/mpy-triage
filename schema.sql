@@ -166,6 +166,23 @@ CREATE TABLE IF NOT EXISTS scan_results (
            candidate_repo, candidate_number, candidate_type)
 );
 
+-- Sonnet assessments of scan results
+CREATE TABLE IF NOT EXISTS scan_assessments (
+    query_number INTEGER NOT NULL,
+    query_type TEXT NOT NULL,
+    query_repo TEXT NOT NULL,
+    candidate_number INTEGER NOT NULL,
+    candidate_type TEXT NOT NULL,
+    candidate_repo TEXT NOT NULL,
+    classification TEXT,
+    confidence TEXT,
+    reasoning TEXT,
+    suggested_action TEXT,
+    assessed_at TEXT,
+    UNIQUE(query_repo, query_number, query_type,
+           candidate_repo, candidate_number, candidate_type)
+);
+
 -- Embedding model metadata
 CREATE TABLE IF NOT EXISTS embedding_meta (
     key TEXT PRIMARY KEY,
