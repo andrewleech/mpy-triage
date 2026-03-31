@@ -2,6 +2,7 @@
 """Run Sonnet assessment on top N scan results."""
 
 import json
+import os
 import sqlite3
 import subprocess
 import sys
@@ -14,7 +15,16 @@ from mpy_triage.config import clean_env, get_config
 from mpy_triage.db import get_connection, init_db
 
 TOP_N = int(sys.argv[1]) if len(sys.argv) > 1 else 20
-TIMEOUT = 120
+TIMEOUT = 300
+
+# Find claude binary
+import shutil
+CLAUDE_BIN = shutil.which("claude") or os.path.expanduser(
+    "~/.local/share/claude/versions/2.1.81"
+)
+if not os.path.isfile(CLAUDE_BIN):
+    print(f"ERROR: claude not found at {CLAUDE_BIN}")
+    sys.exit(1)
 
 config = get_config()
 conn = get_connection(config.db_path)
@@ -61,7 +71,7 @@ for i, row in enumerate(pairs):
     full_prompt = f"{system_prompt}\n\n{user_prompt}"
 
     cmd = [
-        "claude", "--model", "sonnet", "-p",
+        CLAUDE_BIN, "--model", "sonnet", "-p",
         "--output-format", "json", "--json-schema", schema_json,
         "--no-session-persistence",
     ]
