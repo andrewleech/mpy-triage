@@ -13,7 +13,12 @@ Output a JSON object with:
 - classification: one of the above
 - confidence: "high", "medium", or "low"
 - reasoning: brief explanation of why you chose this classification
-- suggested_action: what the maintainer should do (e.g. "close #X as resolved by PR #Y", "link as related", "no action", "flag as off-topic")
+- suggested_action: specific action for the maintainer (see closure rules below)
+
+Closure rules for DUPLICATE/LIKELY_DUPLICATE:
+- Issue resolved by a merged PR: close the issue as resolved by the PR. Always close the issue, never the PR.
+- Two issues describing the same problem: close the newer issue as duplicate of the older one, UNLESS the newer issue has a substantially better description, reproduction steps, or diagnostic detail — in that case close the older one and keep the newer.
+- Two PRs addressing the same thing: flag for maintainer review (don't suggest closing either).
 
 Consider:
 - Same symptoms on different ports may have different root causes
