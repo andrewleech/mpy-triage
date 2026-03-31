@@ -422,6 +422,52 @@ def export_cmd(ctx, fmt, output):
     conn.close()
 
 
+@main.command("serve")
+@click.option("--host", default="0.0.0.0", help="Bind address.")
+@click.option("--port", type=int, default=0, help="Port (0 = random).")
+@click.pass_context
+def serve(ctx, host, port):
+    """Serve scan results as HTML on a local web server."""
+    import http.server
+    import socket
+
+    from .db import get_connection, init_db
+    from .export import export_html
+
+    config = _get_config_with_db(ctx)
+    conn = get_connection(config.db_path)
+    init_db(conn, config.schema_path)
+    html = export_html(conn)
+    conn.close()
+
+    html_bytes = html.encode("utf-8")
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(html_bytes)))
+            self.end_headers()
+            self.wfile.write(html_bytes)
+
+        def log_message(self, fmt, *args):
+            pass  # suppress request logs
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.bind((host, port))
+    actual_port = sock.getsockname()[1]
+    sock.close()
+
+    server = http.server.HTTPServer((host, actual_port), Handler)
+    click.echo(f"Serving scan results at http://localhost:{actual_port}")
+    click.echo("Press Ctrl+C to stop.")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        click.echo("\nStopped.")
+        server.server_close()
+
+
 @main.command()
 @click.pass_context
 def stats(ctx):
