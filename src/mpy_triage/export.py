@@ -1,4 +1,4 @@
-"""Export scan results as CSV and Markdown."""
+"""Export scan results as CSV, Markdown, and HTML."""
 
 import csv
 import io
@@ -170,3 +170,158 @@ def export_markdown(conn: sqlite3.Connection) -> str:
     _table("Other matches", other)
 
     return "\n".join(lines)
+
+
+_HTML_TEMPLATE = """\
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>mpy-triage Scan Results</title>
+<style>
+body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica,
+        Arial, sans-serif; margin: 2em; color: #24292f; }}
+h1 {{ font-size: 1.5em; }}
+h2 {{ font-size: 1.2em; margin-top: 2em; border-bottom: 1px solid #d0d7de;
+      padding-bottom: 0.3em; }}
+.stats {{ color: #57606a; margin-bottom: 1.5em; }}
+table {{ border-collapse: collapse; width: 100%; font-size: 0.9em; }}
+th, td {{ border: 1px solid #d0d7de; padding: 6px 10px; text-align: left;
+          vertical-align: top; }}
+th {{ background: #f6f8fa; position: sticky; top: 0; cursor: pointer; }}
+th:hover {{ background: #eaeef2; }}
+td.score {{ text-align: right; font-variant-numeric: tabular-nums; }}
+a {{ color: #0969da; text-decoration: none; }}
+a:hover {{ text-decoration: underline; }}
+.cls {{ font-weight: 600; font-size: 0.85em; padding: 2px 6px;
+        border-radius: 3px; white-space: nowrap; }}
+.cls-DUPLICATE {{ background: #dafbe1; color: #116329; }}
+.cls-LIKELY_DUPLICATE {{ background: #fff8c5; color: #6a5300; }}
+.cls-RELATED {{ background: #ddf4ff; color: #0550ae; }}
+.cls-UNRELATED {{ background: #f6f8fa; color: #57606a; }}
+.cls-OFF_TOPIC {{ background: #ffebe9; color: #82071e; }}
+.cls- {{ background: #f6f8fa; color: #8b949e; }}
+details {{ cursor: pointer; max-width: 400px; }}
+details summary {{ white-space: nowrap; overflow: hidden;
+                   text-overflow: ellipsis; }}
+</style>
+</head>
+<body>
+<h1>mpy-triage Scan Results</h1>
+<div class="stats">{stats}</div>
+{sections}
+<script>
+document.querySelectorAll("th").forEach(th => {{
+  th.addEventListener("click", () => {{
+    const table = th.closest("table");
+    const idx = Array.from(th.parentNode.children).indexOf(th);
+    const tbody = table.querySelector("tbody");
+    const rows = Array.from(tbody.querySelectorAll("tr"));
+    const dir = th.dataset.dir === "asc" ? "desc" : "asc";
+    th.dataset.dir = dir;
+    rows.sort((a, b) => {{
+      let av = a.children[idx].dataset.sort || a.children[idx].textContent;
+      let bv = b.children[idx].dataset.sort || b.children[idx].textContent;
+      let na = parseFloat(av), nb = parseFloat(bv);
+      if (!isNaN(na) && !isNaN(nb)) return dir === "asc" ? na - nb : nb - na;
+      return dir === "asc" ? av.localeCompare(bv) : bv.localeCompare(av);
+    }});
+    rows.forEach(r => tbody.appendChild(r));
+  }});
+}});
+</script>
+</body>
+</html>
+"""
+
+
+def _html_escape(text: str) -> str:
+    """Escape HTML special characters."""
+    return (
+        text.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+    )
+
+
+def _html_section(title: str, items: list[dict]) -> str:
+    """Build one HTML table section."""
+    if not items:
+        return ""
+
+    rows_html = []
+    for r in items:
+        q_title = _html_escape(r["query_title"])
+        c_title = _html_escape(r["candidate_title"])
+        kind = "PR" if r["candidate_type"] == "pull_request" else "Issue"
+        cls = r["classification"] or ""
+        cls_label = cls or "pending"
+        reasoning = _html_escape(r["reasoning"]) if r["reasoning"] else ""
+        action = _html_escape(r["suggested_action"]) if r["suggested_action"] else ""
+
+        reasoning_cell = ""
+        if reasoning:
+            short = reasoning[:60] + "..." if len(reasoning) > 60 else reasoning
+            reasoning_cell = (
+                f"<details><summary>{short}</summary>"
+                f"<p>{reasoning}</p>"
+                f"{'<p><b>Action:</b> ' + action + '</p>' if action else ''}"
+                f"</details>"
+            )
+        else:
+            reasoning_cell = "-"
+
+        rows_html.append(
+            f"<tr>"
+            f'<td><a href="{r["query_url"]}">#{r["query_number"]}</a> {q_title}</td>'
+            f'<td><a href="{r["candidate_url"]}">{kind} #{r["candidate_number"]}</a>'
+            f" {c_title}</td>"
+            f'<td>{r["candidate_state"]}</td>'
+            f'<td class="score" data-sort="{r["value_score"]:.4f}">'
+            f'{r["value_score"]:.3f}</td>'
+            f'<td><span class="cls cls-{cls}">{cls_label}</span></td>'
+            f"<td>{reasoning_cell}</td>"
+            f"</tr>"
+        )
+
+    return (
+        f"<h2>{_html_escape(title)} ({len(items)})</h2>\n"
+        f"<table>\n<thead><tr>"
+        f"<th>Issue</th><th>Match</th><th>State</th>"
+        f"<th>Score</th><th>Classification</th><th>Reasoning</th>"
+        f"</tr></thead>\n<tbody>\n"
+        + "\n".join(rows_html)
+        + "\n</tbody></table>\n"
+    )
+
+
+def export_html(conn: sqlite3.Connection) -> str:
+    """Export scan results as a self-contained HTML page."""
+    results = _fetch_scan_results(conn)
+    if not results:
+        return "<html><body><p>No scan results.</p></body></html>"
+
+    assessed = sum(1 for r in results if r["classification"])
+    total = len(results)
+    unique_issues = len(set(r["query_number"] for r in results))
+
+    stats = (
+        f"<b>{total}</b> matches across <b>{unique_issues}</b> open issues "
+        f"&mdash; <b>{assessed}/{total}</b> assessed by Sonnet"
+    )
+
+    merged_prs = [r for r in results if r["candidate_state"] == "merged"]
+    open_issues = [
+        r for r in results
+        if r["candidate_state"] == "open" and r["candidate_type"] == "issue"
+    ]
+    other = [r for r in results if r not in merged_prs and r not in open_issues]
+
+    sections = (
+        _html_section("Open Issues matched to Merged PRs", merged_prs)
+        + _html_section("Open Issues matched to Open Issues", open_issues)
+        + _html_section("Other matches", other)
+    )
+
+    return _HTML_TEMPLATE.format(stats=stats, sections=sections)

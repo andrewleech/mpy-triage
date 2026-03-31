@@ -391,14 +391,15 @@ def scan(ctx, repo, min_score, top_k, skip_rerank, top_n, output):
 
 
 @main.command("export")
-@click.option("--format", "fmt", type=click.Choice(["csv", "markdown"]), default="markdown")
+@click.option("--format", "fmt",
+              type=click.Choice(["csv", "markdown", "html"]), default="markdown")
 @click.option("--output", "-o", type=click.Path(), default=None,
               help="Output file (default: stdout).")
 @click.pass_context
 def export_cmd(ctx, fmt, output):
-    """Export scan results as CSV or Markdown."""
+    """Export scan results as CSV, Markdown, or HTML."""
     from .db import get_connection, init_db
-    from .export import export_csv, export_markdown
+    from .export import export_csv, export_html, export_markdown
 
     config = _get_config_with_db(ctx)
     conn = get_connection(config.db_path)
@@ -406,6 +407,8 @@ def export_cmd(ctx, fmt, output):
 
     if fmt == "csv":
         text = export_csv(conn)
+    elif fmt == "html":
+        text = export_html(conn)
     else:
         text = export_markdown(conn)
 
