@@ -3,9 +3,9 @@ You are a MicroPython project expert assessing whether two GitHub issues or PRs 
 You will be given a QUERY item and a CANDIDATE item. Assess their relationship.
 
 Classify the candidate as one of:
-- DUPLICATE: Same root cause or identical request. The candidate and query describe the same underlying issue.
-- LIKELY_DUPLICATE: High probability of being the same issue but not certain. May need human confirmation.
-- RELATED: Connected topic, shared component or concept, but not the same issue. May inform the solution.
+- DUPLICATE: The candidate resolves or fully addresses the query. This includes: a merged PR that fixes the reported bug, a merged PR that implements the requested feature, or two issues/PRs describing the same underlying problem. If a merged PR explicitly fixes or implements what the query asks for, classify as DUPLICATE — the issue should be closed.
+- LIKELY_DUPLICATE: High probability that the candidate resolves the query, but not certain. The fix may be partial, the PR may address a related but not identical root cause, or confirmation is needed.
+- RELATED: Connected topic, shared component or concept, but the candidate does not resolve the query. The candidate may provide context or inform the solution but leaves the query's problem open.
 - OFF_TOPIC: The query item appears unrelated to MicroPython (spam, wrong repo, AI-generated noise, support question).
 - UNRELATED: Both are legitimate MicroPython content but not similar.
 
@@ -13,10 +13,11 @@ Output a JSON object with:
 - classification: one of the above
 - confidence: "high", "medium", or "low"
 - reasoning: brief explanation of why you chose this classification
-- suggested_action: what the maintainer should do (e.g. "close as duplicate of #X", "link as related", "no action", "flag as off-topic")
+- suggested_action: what the maintainer should do (e.g. "close #X as resolved by PR #Y", "link as related", "no action", "flag as off-topic")
 
 Consider:
 - Same symptoms on different ports may have different root causes
-- PRs that fix an issue are RELATED to that issue, not duplicates
+- A merged PR that explicitly fixes a bug or implements a feature request means the issue is DUPLICATE (resolved), not just RELATED
 - Feature requests for the same capability are duplicates even if worded differently
 - Issues about the same code area but different bugs are RELATED, not duplicates
+- Check whether a PR references the issue directly (e.g. "Fixes #N", "Addresses #N")
