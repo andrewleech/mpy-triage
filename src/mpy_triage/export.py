@@ -9,6 +9,15 @@ from .format import github_url
 
 logger = logging.getLogger(__name__)
 
+_CLASSIFICATION_ORDER = {
+    "DUPLICATE": 0,
+    "LIKELY_DUPLICATE": 1,
+    "RELATED": 2,
+    "OFF_TOPIC": 3,
+    "UNRELATED": 4,
+    "": 5,
+}
+
 
 def _fetch_scan_results(conn: sqlite3.Connection) -> list[dict]:
     """Fetch all scan results with titles and assessment data if available."""
@@ -91,10 +100,15 @@ def _get_assessment(
 
 
 def export_csv(conn: sqlite3.Connection) -> str:
-    """Export scan results as CSV string."""
+    """Export scan results as CSV string, ordered by classification priority."""
     results = _fetch_scan_results(conn)
     if not results:
         return ""
+
+    results.sort(key=lambda r: (
+        _CLASSIFICATION_ORDER.get(r["classification"], 5),
+        -r["value_score"],
+    ))
 
     output = io.StringIO()
     fields = [
@@ -127,16 +141,25 @@ def export_markdown(conn: sqlite3.Connection) -> str:
         "",
     ]
 
-    # Group by category
-    merged_prs = [r for r in results if r["candidate_state"] == "merged"]
-    open_issues = [
-        r for r in results
-        if r["candidate_state"] == "open" and r["candidate_type"] == "issue"
-    ]
-    other = [
-        r for r in results
-        if r not in merged_prs and r not in open_issues
-    ]
+    # Group by classification
+    groups = {
+        "DUPLICATE": [],
+        "LIKELY_DUPLICATE": [],
+        "RELATED": [],
+        "UNRELATED": [],
+        "": [],
+    }
+    for r in results:
+        cls = r["classification"]
+        groups.setdefault(cls, []).append(r)
+
+    group_titles = {
+        "DUPLICATE": "Duplicates — issues to close",
+        "LIKELY_DUPLICATE": "Likely Duplicates — need confirmation",
+        "RELATED": "Related",
+        "UNRELATED": "Unrelated (false positives)",
+        "": "Pending assessment",
+    }
 
     def _table(title: str, items: list[dict]) -> None:
         if not items:
@@ -150,14 +173,20 @@ def export_markdown(conn: sqlite3.Connection) -> str:
             "|-------|-------|-------|------:|----------------|-----------|"
         )
         for r in items:
-            issue_link = f"[#{r['query_number']}]({r['query_url']}) {r['query_title']}"
+            issue_link = (
+                f"[#{r['query_number']}]({r['query_url']}) {r['query_title']}"
+            )
             kind = "PR" if r["candidate_type"] == "pull_request" else "Issue"
             match_link = (
                 f"[{kind} #{r['candidate_number']}]({r['candidate_url']})"
                 f" {r['candidate_title']}"
             )
             cls = r["classification"] or "-"
-            reasoning = r["reasoning"][:80] + "..." if len(r["reasoning"]) > 80 else r["reasoning"]
+            reasoning = (
+                r["reasoning"][:80] + "..."
+                if len(r["reasoning"]) > 80
+                else r["reasoning"]
+            )
             reasoning = reasoning or "-"
             lines.append(
                 f"| {issue_link} | {match_link} | {r['candidate_state']}"
@@ -165,9 +194,8 @@ def export_markdown(conn: sqlite3.Connection) -> str:
             )
         lines.append("")
 
-    _table("Open Issues matched to Merged PRs (likely already fixed)", merged_prs)
-    _table("Open Issues matched to Open Issues (potential duplicates)", open_issues)
-    _table("Other matches", other)
+    for cls in ["DUPLICATE", "LIKELY_DUPLICATE", "RELATED", "UNRELATED", ""]:
+        _table(group_titles.get(cls, cls), groups.get(cls, []))
 
     return "\n".join(lines)
 
@@ -311,17 +339,23 @@ def export_html(conn: sqlite3.Connection) -> str:
         f"&mdash; <b>{assessed}/{total}</b> assessed by Sonnet"
     )
 
-    merged_prs = [r for r in results if r["candidate_state"] == "merged"]
-    open_issues = [
-        r for r in results
-        if r["candidate_state"] == "open" and r["candidate_type"] == "issue"
-    ]
-    other = [r for r in results if r not in merged_prs and r not in open_issues]
+    groups = {}
+    for r in results:
+        cls = r["classification"]
+        groups.setdefault(cls, []).append(r)
 
-    sections = (
-        _html_section("Open Issues matched to Merged PRs", merged_prs)
-        + _html_section("Open Issues matched to Open Issues", open_issues)
-        + _html_section("Other matches", other)
-    )
+    group_titles = {
+        "DUPLICATE": "Duplicates — issues to close",
+        "LIKELY_DUPLICATE": "Likely Duplicates — need confirmation",
+        "RELATED": "Related",
+        "UNRELATED": "Unrelated (false positives)",
+        "": "Pending assessment",
+    }
+
+    sections = ""
+    for cls in ["DUPLICATE", "LIKELY_DUPLICATE", "RELATED", "UNRELATED", ""]:
+        sections += _html_section(
+            group_titles.get(cls, cls), groups.get(cls, [])
+        )
 
     return _HTML_TEMPLATE.format(stats=stats, sections=sections)
