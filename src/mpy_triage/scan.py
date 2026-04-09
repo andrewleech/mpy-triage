@@ -44,6 +44,21 @@ def _get_title(
     return row["title"] if row else ""
 
 
+def _top_k_per_type(candidates: list[dict], top_k: int) -> list[dict]:
+    """Select top_k candidates per item_type (issue vs pull_request).
+
+    This prevents merged PRs (with their 2x value multiplier) from
+    crowding out issue-to-issue duplicate matches.
+    """
+    buckets: dict[str, list[dict]] = {}
+    for c in candidates:
+        buckets.setdefault(c["item_type"], []).append(c)
+    result = []
+    for items in buckets.values():
+        result.extend(items[:top_k])
+    return result
+
+
 def scan_open_issues(
     conn: sqlite3.Connection,
     embedder: Embedder,
@@ -51,10 +66,14 @@ def scan_open_issues(
     *,
     repo: str,
     min_score: float = 0.01,
-    top_k: int = 5,
+    top_k: int = 3,
     skip_rerank: bool = False,
 ) -> list[dict]:
-    """Search for matches for every open issue. Returns ranked discoveries."""
+    """Search for matches for every open issue. Returns ranked discoveries.
+
+    Keeps top_k candidates per candidate type (issues and PRs separately)
+    so that high-scoring PRs don't crowd out issue-to-issue duplicates.
+    """
     try:
         from tqdm import tqdm
     except ImportError:
@@ -90,7 +109,9 @@ def scan_open_issues(
             skip_rerank=skip_rerank,
         )
 
-        for c in candidates[:top_k]:
+        selected = _top_k_per_type(candidates, top_k)
+
+        for c in selected:
             c_number = c["item_number"]
             c_type = c["item_type"]
             c_repo = c["repo"]

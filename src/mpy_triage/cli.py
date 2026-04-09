@@ -348,7 +348,8 @@ def pr(ctx, number, repo, skip_summarize, skip_assess, output_json, backend, loc
 @main.command()
 @click.option("--repo", multiple=True)
 @click.option("--min-score", type=float, default=0.06, help="Minimum value score.")
-@click.option("--top-k", type=int, default=5, help="Candidates per query item.")
+@click.option("--top-k", type=int, default=3,
+              help="Candidates per type (issues and PRs separately).")
 @click.option("--skip-rerank", is_flag=True, help="Skip cross-encoder (faster).")
 @click.option("--top-n", type=int, default=50, help="Top discoveries to show.")
 @click.option("--output", type=click.Path(), default=None, help="Save full results to JSON.")
