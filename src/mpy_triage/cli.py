@@ -351,10 +351,12 @@ def pr(ctx, number, repo, skip_summarize, skip_assess, output_json, backend, loc
 @click.option("--top-k", type=int, default=3,
               help="Candidates per type (issues and PRs separately).")
 @click.option("--skip-rerank", is_flag=True, help="Skip cross-encoder (faster).")
+@click.option("--reranker", "reranker_model", type=str, default=None,
+              help="Reranker model name (default: from config).")
 @click.option("--top-n", type=int, default=50, help="Top discoveries to show.")
 @click.option("--output", type=click.Path(), default=None, help="Save full results to JSON.")
 @click.pass_context
-def scan(ctx, repo, min_score, top_k, skip_rerank, top_n, output):
+def scan(ctx, repo, min_score, top_k, skip_rerank, reranker_model, top_n, output):
     """Scan all open issues for related/duplicate items."""
     from .db import get_connection, init_db, load_vec_extension
     from .embed import Embedder
@@ -366,8 +368,9 @@ def scan(ctx, repo, min_score, top_k, skip_rerank, top_n, output):
     init_db(conn, config.schema_path)
     load_vec_extension(conn)
 
+    model = reranker_model or config.retrieval.reranker_model
     embedder = Embedder(config.embedding)
-    reranker = None if skip_rerank else Reranker(config.retrieval.reranker_model)
+    reranker = None if skip_rerank else Reranker(model)
 
     repos = _get_repos(repo)
     all_results = []

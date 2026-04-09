@@ -47,7 +47,7 @@ class RetrievalConfig:
     top_k_initial: int = 100
     top_k_rerank: int = 20
     top_k_assess: int = 5
-    reranker_model: str = "BAAI/bge-reranker-large"
+    reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
     rrf_k: int = 60
 
 

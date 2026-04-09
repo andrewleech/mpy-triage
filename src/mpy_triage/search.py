@@ -143,7 +143,12 @@ class Reranker:
     def _load_model(self):
         from sentence_transformers import CrossEncoder
 
-        self._model = CrossEncoder(self._model_name)
+        try:
+            import torch
+            dtype = {"torch_dtype": torch.float16} if torch.cuda.is_available() else {}
+        except ImportError:
+            dtype = {}
+        self._model = CrossEncoder(self._model_name, model_kwargs=dtype)
 
     def rerank(
         self, query_text: str, candidates: list[dict], top_k: int = 20
