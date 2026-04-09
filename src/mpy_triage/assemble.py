@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 # Target budget for assembled XML. Prevents GPU OOM during embedding
 # by keeping input text within ~2K tokens for the embedding model.
-MAX_XML_CHARS = 8000
+MAX_XML_CHARS = 4000
 
 
 @dataclass
