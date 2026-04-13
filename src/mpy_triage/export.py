@@ -59,6 +59,7 @@ def _fetch_scan_results(conn: sqlite3.Connection) -> list[dict]:
             "confidence": assessment.get("confidence", ""),
             "reasoning": assessment.get("reasoning", ""),
             "suggested_action": assessment.get("suggested_action", ""),
+            "assessment_source": assessment.get("assessment_source", ""),
         })
 
     return results
@@ -78,24 +79,33 @@ def _get_assessment(
     q_num: int, q_type: str, q_repo: str,
     c_num: int, c_type: str, c_repo: str,
 ) -> dict:
-    """Fetch assessment for a scan result pair, if it exists."""
-    try:
-        row = conn.execute(
-            "SELECT classification, confidence, reasoning, suggested_action "
-            "FROM scan_assessments "
-            "WHERE query_number=? AND query_type=? AND query_repo=? "
-            "AND candidate_number=? AND candidate_type=? AND candidate_repo=?",
-            (q_num, q_type, q_repo, c_num, c_type, c_repo),
-        ).fetchone()
-        if row:
-            return {
-                "classification": row[0],
-                "confidence": row[1],
-                "reasoning": row[2],
-                "suggested_action": row[3],
-            }
-    except sqlite3.OperationalError:
-        pass  # Table doesn't exist yet
+    """Fetch assessment for a scan result pair, preferring Sonnet over Qwen."""
+    key = (q_num, q_type, q_repo, c_num, c_type, c_repo)
+    where = (
+        "WHERE query_number=? AND query_type=? AND query_repo=? "
+        "AND candidate_number=? AND candidate_type=? AND candidate_repo=?"
+    )
+    # Prefer Sonnet validation if available, fall back to Qwen first-pass
+    for table, source in [
+        ("scan_assessments_sonnet", "sonnet"),
+        ("scan_assessments", "qwen"),
+    ]:
+        try:
+            row = conn.execute(
+                f"SELECT classification, confidence, reasoning, suggested_action "
+                f"FROM {table} {where}",
+                key,
+            ).fetchone()
+            if row:
+                return {
+                    "classification": row[0],
+                    "confidence": row[1],
+                    "reasoning": row[2],
+                    "suggested_action": row[3],
+                    "assessment_source": source,
+                }
+        except sqlite3.OperationalError:
+            pass  # Table doesn't exist yet
     return {}
 
 
@@ -115,7 +125,8 @@ def export_csv(conn: sqlite3.Connection) -> str:
         "query_number", "query_title", "query_url",
         "candidate_number", "candidate_type", "candidate_title",
         "candidate_url", "candidate_state", "value_score",
-        "classification", "confidence", "reasoning", "suggested_action",
+        "classification", "confidence", "assessment_source",
+        "reasoning", "suggested_action",
     ]
     writer = csv.DictWriter(output, fieldnames=fields, extrasaction="ignore")
     writer.writeheader()
@@ -130,6 +141,8 @@ def export_markdown(conn: sqlite3.Connection) -> str:
         return "No scan results.\n"
 
     assessed = sum(1 for r in results if r["classification"])
+    sonnet_n = sum(1 for r in results if r.get("assessment_source") == "sonnet")
+    qwen_n = sum(1 for r in results if r.get("assessment_source") == "qwen")
     total = len(results)
 
     lines = [
@@ -137,7 +150,7 @@ def export_markdown(conn: sqlite3.Connection) -> str:
         "",
         f"**{total} matches** across "
         f"**{len(set(r['query_number'] for r in results))} open issues**",
-        f"**{assessed}/{total} assessed** by Sonnet",
+        f"**{assessed}/{total} assessed** — Sonnet: {sonnet_n}, Qwen: {qwen_n}",
         "",
     ]
 
@@ -147,6 +160,7 @@ def export_markdown(conn: sqlite3.Connection) -> str:
         "LIKELY_DUPLICATE": [],
         "RELATED": [],
         "UNRELATED": [],
+        "OFF_TOPIC": [],
         "": [],
     }
     for r in results:
@@ -158,6 +172,7 @@ def export_markdown(conn: sqlite3.Connection) -> str:
         "LIKELY_DUPLICATE": "Likely Duplicates — need confirmation",
         "RELATED": "Related",
         "UNRELATED": "Unrelated (false positives)",
+        "OFF_TOPIC": "Off-topic (spam / wrong repo)",
         "": "Pending assessment",
     }
 
@@ -194,7 +209,7 @@ def export_markdown(conn: sqlite3.Connection) -> str:
             )
         lines.append("")
 
-    for cls in ["DUPLICATE", "LIKELY_DUPLICATE", "RELATED", "UNRELATED", ""]:
+    for cls in ["DUPLICATE", "LIKELY_DUPLICATE", "RELATED", "UNRELATED", "OFF_TOPIC", ""]:
         _table(group_titles.get(cls, cls), groups.get(cls, []))
 
     return "\n".join(lines)
@@ -229,6 +244,11 @@ a:hover {{ text-decoration: underline; }}
 .cls-UNRELATED {{ background: #f6f8fa; color: #57606a; }}
 .cls-OFF_TOPIC {{ background: #ffebe9; color: #82071e; }}
 .cls- {{ background: #f6f8fa; color: #8b949e; }}
+.src {{ display: inline-block; font-size: 0.7em; font-weight: 700;
+        padding: 1px 5px; border-radius: 3px; margin-left: 4px;
+        vertical-align: middle; }}
+.src-sonnet {{ background: #d7aefb; color: #24292f; }}
+.src-qwen {{ background: #a5d6a7; color: #24292f; }}
 details {{ cursor: pointer; max-width: 400px; }}
 details summary {{ white-space: nowrap; overflow: hidden;
                    text-overflow: ellipsis; }}
@@ -300,6 +320,12 @@ def _html_section(title: str, items: list[dict]) -> str:
         else:
             reasoning_cell = "-"
 
+        source = r.get("assessment_source", "")
+        source_label = {
+            "sonnet": '<span class="src src-sonnet">S</span>',
+            "qwen": '<span class="src src-qwen">Q</span>',
+        }.get(source, "")
+
         rows_html.append(
             f"<tr>"
             f'<td><a href="{r["query_url"]}">#{r["query_number"]}</a> {q_title}</td>'
@@ -308,7 +334,7 @@ def _html_section(title: str, items: list[dict]) -> str:
             f'<td>{r["candidate_state"]}</td>'
             f'<td class="score" data-sort="{r["value_score"]:.4f}">'
             f'{r["value_score"]:.3f}</td>'
-            f'<td><span class="cls cls-{cls}">{cls_label}</span></td>'
+            f'<td><span class="cls cls-{cls}">{cls_label}</span> {source_label}</td>'
             f"<td>{reasoning_cell}</td>"
             f"</tr>"
         )
@@ -331,12 +357,16 @@ def export_html(conn: sqlite3.Connection) -> str:
         return "<html><body><p>No scan results.</p></body></html>"
 
     assessed = sum(1 for r in results if r["classification"])
+    sonnet_n = sum(1 for r in results if r.get("assessment_source") == "sonnet")
+    qwen_n = sum(1 for r in results if r.get("assessment_source") == "qwen")
     total = len(results)
     unique_issues = len(set(r["query_number"] for r in results))
 
     stats = (
         f"<b>{total}</b> matches across <b>{unique_issues}</b> open issues "
-        f"&mdash; <b>{assessed}/{total}</b> assessed by Sonnet"
+        f"&mdash; <b>{assessed}/{total}</b> assessed "
+        f'(<span class="src src-sonnet">S</span> Sonnet: <b>{sonnet_n}</b>, '
+        f'<span class="src src-qwen">Q</span> Qwen: <b>{qwen_n}</b>)'
     )
 
     groups = {}
@@ -349,11 +379,12 @@ def export_html(conn: sqlite3.Connection) -> str:
         "LIKELY_DUPLICATE": "Likely Duplicates — need confirmation",
         "RELATED": "Related",
         "UNRELATED": "Unrelated (false positives)",
+        "OFF_TOPIC": "Off-topic (spam / wrong repo)",
         "": "Pending assessment",
     }
 
     sections = ""
-    for cls in ["DUPLICATE", "LIKELY_DUPLICATE", "RELATED", "UNRELATED", ""]:
+    for cls in ["DUPLICATE", "LIKELY_DUPLICATE", "RELATED", "UNRELATED", "OFF_TOPIC", ""]:
         sections += _html_section(
             group_titles.get(cls, cls), groups.get(cls, [])
         )
