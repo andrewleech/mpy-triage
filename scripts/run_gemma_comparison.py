@@ -30,7 +30,11 @@ from mpy_triage.db import get_connection, init_db
 SAMPLE_SIZE = int(sys.argv[1]) if len(sys.argv) > 1 and not sys.argv[1].startswith("-") else 50
 API_URL = sys.argv[2] if len(sys.argv) > 2 and not sys.argv[2].startswith("-") else "http://pilap2:13305/v1"
 THINKING = "--think" in sys.argv
-TIMEOUT = 300 if THINKING else 120
+TIMEOUT = 600 if THINKING else 120
+
+# Use separate table/file when thinking enabled to preserve non-thinking results
+TABLE_NAME = "scan_assessments_gemma_think" if THINKING else "scan_assessments_gemma"
+OUTPUT_FILE = "data/eval_gemma_think_comparison.json" if THINKING else "data/eval_gemma_comparison.json"
 
 config = get_config()
 conn = get_connection(config.db_path)
@@ -39,8 +43,8 @@ conn.row_factory = sqlite3.Row
 init_db(conn, config.schema_path)
 
 # Create Gemma comparison table
-conn.execute("""
-    CREATE TABLE IF NOT EXISTS scan_assessments_gemma (
+conn.execute(f"""
+    CREATE TABLE IF NOT EXISTS {TABLE_NAME} (
         query_number INTEGER,
         query_type TEXT,
         query_repo TEXT,
@@ -59,7 +63,7 @@ conn.execute("""
 conn.commit()
 
 # Fetch all disagreement pairs with their classifications
-disagreements = conn.execute("""
+disagreements = conn.execute(f"""
     SELECT sa.query_number, sa.query_type, sa.query_repo,
            sa.candidate_number, sa.candidate_type, sa.candidate_repo,
            sa.classification as qwen_cls,
@@ -76,7 +80,7 @@ disagreements = conn.execute("""
         AND sr.query_repo = sa.query_repo
         AND sr.candidate_number = sa.candidate_number AND sr.candidate_type = sa.candidate_type
         AND sr.candidate_repo = sa.candidate_repo
-    LEFT JOIN scan_assessments_gemma sg
+    LEFT JOIN {TABLE_NAME} sg
         ON sg.query_number = sa.query_number AND sg.query_type = sa.query_type
         AND sg.query_repo = sa.query_repo
         AND sg.candidate_number = sa.candidate_number AND sg.candidate_type = sa.candidate_type
@@ -192,8 +196,8 @@ for i, row in enumerate(sample):
         gemma_cls = response.get("classification", "UNRELATED")
         gemma_conf = response.get("confidence", "low")
 
-        conn.execute("""
-            INSERT OR REPLACE INTO scan_assessments_gemma
+        conn.execute(f"""
+            INSERT OR REPLACE INTO {TABLE_NAME}
             (query_number, query_type, query_repo,
              candidate_number, candidate_type, candidate_repo,
              classification, confidence, reasoning, suggested_action,
@@ -271,7 +275,6 @@ for key in sorted(bucket_results.keys(), key=lambda k: -len(bucket_results[k])):
     print(f"{key[0]:>20s} → {key[1]:<20s} | {n:>2} | {aq:>5} | {as_:>7} | {an:>8}")
 
 # Save results
-out_path = "data/eval_gemma_comparison.json"
-with open(out_path, "w") as f:
+with open(OUTPUT_FILE, "w") as f:
     json.dump(results, f, indent=2)
-print(f"\nSaved to {out_path}")
+print(f"\nSaved to {OUTPUT_FILE}")
