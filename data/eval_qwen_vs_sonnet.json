@@ -1,0 +1,209 @@
+[
+  {
+    "query": "#17521",
+    "candidate": "pull_request #12559",
+    "qwen": "LIKELY_DUPLICATE",
+    "qwen_conf": "medium",
+    "sonnet": "RELATED",
+    "sonnet_conf": "high",
+    "match": false
+  },
+  {
+    "query": "#11787",
+    "candidate": "pull_request #17518",
+    "qwen": "DUPLICATE",
+    "qwen_conf": "high",
+    "sonnet": "LIKELY_DUPLICATE",
+    "sonnet_conf": "high",
+    "match": false
+  },
+  {
+    "query": "#926",
+    "candidate": "issue #15957",
+    "qwen": "DUPLICATE",
+    "qwen_conf": "high",
+    "sonnet": "DUPLICATE",
+    "sonnet_conf": "high",
+    "match": true
+  },
+  {
+    "query": "#15957",
+    "candidate": "issue #926",
+    "qwen": "DUPLICATE",
+    "qwen_conf": "high",
+    "sonnet": "DUPLICATE",
+    "sonnet_conf": "high",
+    "match": true
+  },
+  {
+    "query": "#7905",
+    "candidate": "issue #7899",
+    "qwen": "RELATED",
+    "qwen_conf": "high",
+    "sonnet": "RELATED",
+    "sonnet_conf": "high",
+    "match": true
+  },
+  {
+    "query": "#7899",
+    "candidate": "issue #7905",
+    "qwen": "RELATED",
+    "qwen_conf": "high",
+    "sonnet": "RELATED",
+    "sonnet_conf": "high",
+    "match": true
+  },
+  {
+    "query": "#7899",
+    "candidate": "issue #7886",
+    "qwen": "RELATED",
+    "qwen_conf": "high",
+    "sonnet": "RELATED",
+    "sonnet_conf": "high",
+    "match": true
+  },
+  {
+    "query": "#7849",
+    "candidate": "pull_request #12761",
+    "qwen": "LIKELY_DUPLICATE",
+    "qwen_conf": "medium",
+    "sonnet": "RELATED",
+    "sonnet_conf": "high",
+    "match": false
+  },
+  {
+    "query": "#17521",
+    "candidate": "pull_request #7298",
+    "qwen": "LIKELY_DUPLICATE",
+    "qwen_conf": "medium",
+    "sonnet": "RELATED",
+    "sonnet_conf": "high",
+    "match": false
+  },
+  {
+    "query": "#16295",
+    "candidate": "pull_request #17171",
+    "qwen": "DUPLICATE",
+    "qwen_conf": "high",
+    "sonnet": "DUPLICATE",
+    "sonnet_conf": "high",
+    "match": true
+  },
+  {
+    "query": "#7886",
+    "candidate": "issue #7899",
+    "qwen": "RELATED",
+    "qwen_conf": "high",
+    "sonnet": "RELATED",
+    "sonnet_conf": "high",
+    "match": true
+  },
+  {
+    "query": "#656",
+    "candidate": "issue #11483",
+    "qwen": "DUPLICATE",
+    "qwen_conf": "high",
+    "sonnet": "DUPLICATE",
+    "sonnet_conf": "high",
+    "match": true
+  },
+  {
+    "query": "#7905",
+    "candidate": "issue #7886",
+    "qwen": "RELATED",
+    "qwen_conf": "high",
+    "sonnet": "RELATED",
+    "sonnet_conf": "high",
+    "match": true
+  },
+  {
+    "query": "#403",
+    "candidate": "issue #6616",
+    "qwen": "DUPLICATE",
+    "qwen_conf": "high",
+    "sonnet": "DUPLICATE",
+    "sonnet_conf": "high",
+    "match": true
+  },
+  {
+    "query": "#7886",
+    "candidate": "issue #7905",
+    "qwen": "RELATED",
+    "qwen_conf": "high",
+    "sonnet": "RELATED",
+    "sonnet_conf": "high",
+    "match": true
+  },
+  {
+    "query": "#12636",
+    "candidate": "pull_request #16702",
+    "qwen": "RELATED",
+    "qwen_conf": "high",
+    "sonnet": "RELATED",
+    "sonnet_conf": "high",
+    "match": true
+  },
+  {
+    "query": "#5225",
+    "candidate": "pull_request #5542",
+    "qwen": "DUPLICATE",
+    "qwen_conf": "high",
+    "sonnet": "DUPLICATE",
+    "sonnet_conf": "high",
+    "match": true
+  },
+  {
+    "query": "#16271",
+    "candidate": "issue #16295",
+    "qwen": "RELATED",
+    "qwen_conf": "high",
+    "sonnet": "RELATED",
+    "sonnet_conf": "high",
+    "match": true
+  },
+  {
+    "query": "#4854",
+    "candidate": "pull_request #12662",
+    "qwen": "OFF_TOPIC",
+    "qwen_conf": "high",
+    "sonnet": "UNRELATED",
+    "sonnet_conf": "high",
+    "match": false
+  },
+  {
+    "query": "#17600",
+    "candidate": "issue #16295",
+    "qwen": "RELATED",
+    "qwen_conf": "high",
+    "sonnet": "RELATED",
+    "sonnet_conf": "high",
+    "match": true
+  },
+  {
+    "query": "#4923",
+    "candidate": "issue #4427",
+    "qwen": "DUPLICATE",
+    "qwen_conf": "high",
+    "sonnet": "RELATED",
+    "sonnet_conf": "high",
+    "match": false
+  },
+  {
+    "query": "#444",
+    "candidate": "issue #803",
+    "qwen": "DUPLICATE",
+    "qwen_conf": "high",
+    "sonnet": "RELATED",
+    "sonnet_conf": "high",
+    "match": false
+  },
+  {
+    "query": "#12228",
+    "candidate": "pull_request #12436",
+    "qwen": "DUPLICATE",
+    "qwen_conf": "high",
+    "sonnet": "DUPLICATE",
+    "sonnet_conf": "high",
+    "match": true
+  }
+]
