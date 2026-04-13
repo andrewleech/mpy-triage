@@ -19,8 +19,14 @@ _CLASSIFICATION_ORDER = {
 }
 
 
-def _fetch_scan_results(conn: sqlite3.Connection) -> list[dict]:
-    """Fetch all scan results with titles and assessment data if available."""
+def _fetch_scan_results(
+    conn: sqlite3.Connection, exclude_unrelated: bool = True
+) -> list[dict]:
+    """Fetch scan results with titles and assessment data.
+
+    By default, filters out UNRELATED classifications since they represent
+    search false positives with no actionable value.
+    """
     rows = conn.execute("""
         SELECT sr.query_number, sr.query_type, sr.query_repo,
                sr.candidate_number, sr.candidate_type, sr.candidate_repo,
@@ -61,6 +67,9 @@ def _fetch_scan_results(conn: sqlite3.Connection) -> list[dict]:
             "suggested_action": assessment.get("suggested_action", ""),
             "assessment_source": assessment.get("assessment_source", ""),
         })
+
+    if exclude_unrelated:
+        results = [r for r in results if r["classification"] != "UNRELATED"]
 
     return results
 
@@ -159,7 +168,6 @@ def export_markdown(conn: sqlite3.Connection) -> str:
         "DUPLICATE": [],
         "LIKELY_DUPLICATE": [],
         "RELATED": [],
-        "UNRELATED": [],
         "OFF_TOPIC": [],
         "": [],
     }
@@ -171,7 +179,6 @@ def export_markdown(conn: sqlite3.Connection) -> str:
         "DUPLICATE": "Duplicates — issues to close",
         "LIKELY_DUPLICATE": "Likely Duplicates — need confirmation",
         "RELATED": "Related",
-        "UNRELATED": "Unrelated (false positives)",
         "OFF_TOPIC": "Off-topic (spam / wrong repo)",
         "": "Pending assessment",
     }
@@ -209,7 +216,7 @@ def export_markdown(conn: sqlite3.Connection) -> str:
             )
         lines.append("")
 
-    for cls in ["DUPLICATE", "LIKELY_DUPLICATE", "RELATED", "UNRELATED", "OFF_TOPIC", ""]:
+    for cls in ["DUPLICATE", "LIKELY_DUPLICATE", "RELATED", "OFF_TOPIC", ""]:
         _table(group_titles.get(cls, cls), groups.get(cls, []))
 
     return "\n".join(lines)
@@ -378,13 +385,12 @@ def export_html(conn: sqlite3.Connection) -> str:
         "DUPLICATE": "Duplicates — issues to close",
         "LIKELY_DUPLICATE": "Likely Duplicates — need confirmation",
         "RELATED": "Related",
-        "UNRELATED": "Unrelated (false positives)",
         "OFF_TOPIC": "Off-topic (spam / wrong repo)",
         "": "Pending assessment",
     }
 
     sections = ""
-    for cls in ["DUPLICATE", "LIKELY_DUPLICATE", "RELATED", "UNRELATED", "OFF_TOPIC", ""]:
+    for cls in ["DUPLICATE", "LIKELY_DUPLICATE", "RELATED", "OFF_TOPIC", ""]:
         sections += _html_section(
             group_titles.get(cls, cls), groups.get(cls, [])
         )
