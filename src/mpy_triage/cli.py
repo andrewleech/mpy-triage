@@ -426,6 +426,38 @@ def export_cmd(ctx, fmt, output):
     conn.close()
 
 
+def _resolve_display_hostname() -> str:
+    """Return a shareable hostname for the serve URL.
+
+    Tries tailscale first (so LAN/remote users can click the URL), falls back
+    to the system hostname, then "localhost".
+    """
+    import json
+    import socket as _socket
+    import subprocess
+
+    try:
+        out = subprocess.check_output(
+            ["tailscale", "status", "--json"],
+            timeout=2,
+            stderr=subprocess.DEVNULL,
+        )
+        name = json.loads(out).get("Self", {}).get("DNSName", "").rstrip(".")
+        if name:
+            return name
+    except (OSError, subprocess.SubprocessError, ValueError):
+        pass
+
+    try:
+        name = _socket.gethostname()
+        if name and name != "localhost":
+            return name
+    except OSError:
+        pass
+
+    return "localhost"
+
+
 @main.command("serve")
 @click.option("--host", default="0.0.0.0", help="Bind address.")
 @click.option("--port", type=int, default=0, help="Port (0 = random).")
@@ -516,7 +548,10 @@ def serve(ctx, host, port):
     sock.close()
 
     server = http.server.HTTPServer((host, actual_port), Handler)
-    click.echo(f"Serving triage workbench at http://localhost:{actual_port}")
+    display_host = _resolve_display_hostname()
+    click.echo(f"Serving triage workbench at http://{display_host}:{actual_port}")
+    if display_host != "localhost":
+        click.echo(f"  (also: http://localhost:{actual_port})")
     click.echo("Press Ctrl+C to stop.")
     try:
         server.serve_forever()
