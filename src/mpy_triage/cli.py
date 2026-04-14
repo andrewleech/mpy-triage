@@ -431,28 +431,81 @@ def export_cmd(ctx, fmt, output):
 @click.option("--port", type=int, default=0, help="Port (0 = random).")
 @click.pass_context
 def serve(ctx, host, port):
-    """Serve scan results as HTML on a local web server."""
+    """Serve the triage workbench — index + per-pair detail pages."""
     import http.server
+    import re
     import socket
+    import urllib.parse
 
     from .db import get_connection, init_db
-    from .export import export_html
+    from .export import _fetch_scan_results
+    from .render import (
+        STYLE_CSS,
+        render_detail_html,
+        render_index_html,
+        sort_pairs,
+    )
 
     config = _get_config_with_db(ctx)
     conn = get_connection(config.db_path)
     init_db(conn, config.schema_path)
-    html = export_html(conn)
-    conn.close()
 
-    html_bytes = html.encode("utf-8")
+    pairs = _fetch_scan_results(conn)
+    sort_pairs(pairs)
+
+    # Pre-render the index (single large page, stable while server runs).
+    index_bytes = render_index_html(pairs, inline_css=False).encode("utf-8")
+    css_bytes = STYLE_CSS.encode("utf-8")
+
+    # Cache rendered detail pages by 0-based index.
+    detail_cache: dict[int, bytes] = {}
+
+    def _render_detail(i: int) -> bytes:
+        if i not in detail_cache:
+            detail_cache[i] = render_detail_html(conn, pairs, i).encode("utf-8")
+        return detail_cache[i]
+
+    click.echo(f"Loaded {len(pairs)} pairs. Starting server...")
+
+    pair_re = re.compile(r"^/pair/(\d+)/?$")
 
     class Handler(http.server.BaseHTTPRequestHandler):
-        def do_GET(self):
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.send_header("Content-Length", str(len(html_bytes)))
+        def _respond(self, status: int, content_type: str, body: bytes) -> None:
+            self.send_response(status)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(body)))
+            if content_type.startswith("text/css"):
+                self.send_header("Cache-Control", "public, max-age=300")
             self.end_headers()
-            self.wfile.write(html_bytes)
+            self.wfile.write(body)
+
+        def _not_found(self, msg: str = "Not found") -> None:
+            body = f"<h1>404</h1><p>{msg}</p>".encode()
+            self._respond(404, "text/html; charset=utf-8", body)
+
+        def do_GET(self):
+            path = urllib.parse.urlparse(self.path).path
+
+            if path in ("/", "/index.html"):
+                self._respond(200, "text/html; charset=utf-8", index_bytes)
+                return
+
+            if path == "/static/style.css":
+                self._respond(200, "text/css; charset=utf-8", css_bytes)
+                return
+
+            m = pair_re.match(path)
+            if m:
+                n = int(m.group(1))
+                if not 1 <= n <= len(pairs):
+                    self._not_found(f"pair {n} out of range (1..{len(pairs)})")
+                    return
+                self._respond(
+                    200, "text/html; charset=utf-8", _render_detail(n - 1)
+                )
+                return
+
+            self._not_found()
 
         def log_message(self, fmt, *args):
             pass  # suppress request logs
@@ -463,13 +516,14 @@ def serve(ctx, host, port):
     sock.close()
 
     server = http.server.HTTPServer((host, actual_port), Handler)
-    click.echo(f"Serving scan results at http://localhost:{actual_port}")
+    click.echo(f"Serving triage workbench at http://localhost:{actual_port}")
     click.echo("Press Ctrl+C to stop.")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         click.echo("\nStopped.")
         server.server_close()
+        conn.close()
 
 
 @main.command()
