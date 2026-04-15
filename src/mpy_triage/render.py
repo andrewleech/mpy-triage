@@ -1076,9 +1076,21 @@ body.detail {
   transform: translateX(-50%) translateY(0);
 }
 
-/* --- responsive portrait stacking --- */
+/* ================================================================ */
+/*  MOBILE TAB LAYOUT                                                 */
+/*                                                                    */
+/*  Two tiered breakpoints:                                           */
+/*    - phone (<= 720px): tab-switched panes, card-style index rows   */
+/*    - tablet portrait (721–960px): 50/50 vertical stack             */
+/* ================================================================ */
 
-@media (max-aspect-ratio: 1/1), (max-width: 900px) {
+/* tab switcher is hidden by default (desktop side-by-side) */
+.pane-tabs { display: none; }
+
+/* --- tablet portrait: vertical 50/50 stack --- */
+
+@media (max-width: 960px) and (min-width: 721px),
+       (max-aspect-ratio: 1/1) and (min-width: 721px) {
   .split {
     grid-template-columns: 1fr;
     grid-template-rows: 1fr 1fr;
@@ -1096,29 +1108,283 @@ body.detail {
     border-right: none;
     border-bottom: 1px solid var(--line);
   }
-  .pane { padding: 24px 22px 60px; }
+  .pane { padding: 28px 30px 60px; }
+}
 
-  .chrome {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto auto;
-    padding: 10px 18px;
-    gap: 6px;
+/* --- phones: tab switcher --- */
+
+@media (max-width: 720px) {
+  :root {
+    --footer-h: 58px;
   }
-  .chrome-left, .chrome-center, .chrome-right {
-    justify-self: start;
-  }
-  :root { --chrome-h: auto; }
+
+  /* --- detail layout: chrome (auto) / main (fills) / footer --- */
   .detail-layout {
     grid-template-rows: auto 1fr var(--footer-h);
   }
 
+  /* compact 2-row chrome */
+  .chrome {
+    display: flex;
+    flex-wrap: wrap;
+    padding: 10px 14px 12px;
+    gap: 6px 14px;
+    align-items: baseline;
+    min-height: 0;
+  }
+  .chrome::before { height: 2px; }
+  .chrome-left {
+    flex: 1 1 auto;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+  .chrome .back {
+    border-right: none;
+    padding-right: 0;
+    font-size: 13px;
+  }
+  .chrome .pair-id { font-size: 11px; letter-spacing: 0.01em; }
+  .chrome-center {
+    flex: 1 1 100%;
+    order: 3;
+    justify-self: start;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding-top: 2px;
+  }
+  .chrome .classification {
+    font-size: 14px;
+    padding: 2px 10px;
+    letter-spacing: 0.06em;
+  }
+  .chrome .confidence, .chrome .score { font-size: 9px; }
+  .chrome-right {
+    flex: 0 0 auto;
+    order: 2;
+    gap: 6px;
+    justify-self: end;
+  }
+  .chrome button {
+    font-size: 10px;
+    padding: 6px 10px;
+  }
+  .chrome button .kbd { display: none; }
+
+  /* --- tab switcher --- */
+
+  .pane-tabs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    background: var(--bg-deep);
+    border-bottom: 1px solid var(--line-strong);
+    border-top: 1px solid var(--line);
+    position: relative;
+    z-index: 8;
+  }
+  .pane-tab {
+    appearance: none;
+    background: transparent;
+    border: 0;
+    padding: 12px 10px 10px;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--ink-mute);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    font-weight: 600;
+    min-height: 44px;  /* tap target */
+    -webkit-tap-highlight-color: transparent;
+    transition: color 120ms ease, border-color 120ms ease;
+  }
+  .pane-tab .mark {
+    font-family: var(--serif);
+    font-size: 14px;
+    color: var(--accent);
+  }
+  .pane-tab .ref {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--ink);
+    font-weight: 700;
+  }
+  .pane-tab.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+  }
+  .pane-tab.active .ref { color: var(--accent); }
+  .pane-tab + .pane-tab {
+    border-left: 1px solid var(--line);
+  }
+
+  /* single-pane display */
+  .split {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+    overflow: hidden;
+  }
+  .split::before { display: none; }
+  .pane-tabs { grid-row: 1; grid-column: 1; }
+  .pane-query, .pane-candidate {
+    grid-row: 2;
+    grid-column: 1;
+    display: none;
+    padding: 22px 18px 80px;
+    border: 0;
+  }
+  .split[data-active="query"] .pane-query { display: block; }
+  .split[data-active="candidate"] .pane-candidate { display: block; }
+  .split:not([data-active="candidate"]) .pane-query { display: block; }
+
+  /* per-pane header density */
+  .pane .kicker { font-size: 9px; }
+  .pane h1.item-title {
+    font-size: 22px;
+    line-height: 1.18;
+    margin: 0 0 12px;
+  }
+  .pane .item-meta {
+    font-size: 10px;
+    gap: 10px 12px;
+    padding-bottom: 10px;
+    margin-bottom: 14px;
+  }
+  .pane .item-labels { margin-bottom: 18px; }
+  .pane .item-labels .label { font-size: 9px; padding: 1px 6px; }
+  .pane .body { font-size: 14.5px; line-height: 1.6; }
+  .pane .body > p:first-of-type::first-letter {
+    font-size: 2.5em;
+    padding: 0.03em 0.08em 0 0;
+  }
+  .pane .body pre { font-size: 11.5px; padding: 10px 12px; }
+  .pane .body h1 { font-size: 1.3em; }
+  .pane .body h2 { font-size: 1.18em; }
+  .pane .body h3 { font-size: 1.06em; }
+
+  .comments { margin-top: 36px; padding-top: 18px; }
+  .comment { margin-bottom: 22px; padding-left: 12px; }
+  .comment .comment-body { font-size: 13.5px; }
+
+  /* --- footer: bigger touch targets --- */
+  .footer { padding: 0 14px; }
+  .footer .nav-prev, .footer .nav-next {
+    font-size: 11px;
+    padding: 8px 10px;
+    min-height: 44px;
+    min-width: 44px;
+  }
+  .footer .position { font-size: 13px; }
+  .footer .kbd { display: none; }
+
+  /* --- drawer: bottom sheet instead of side panel --- */
+  .drawer {
+    top: auto;
+    right: 0;
+    left: 0;
+    width: 100%;
+    max-width: none;
+    bottom: var(--footer-h);
+    max-height: 65vh;
+    border-left: 0;
+    border-top: 1px solid var(--line-strong);
+    box-shadow: 0 -6px 24px rgba(20, 20, 20, 0.08);
+    transform: translateY(100%);
+    padding: 22px 20px 48px;
+  }
+  .drawer.open { transform: translateY(0); }
+
+  /* --- help overlay: smaller card --- */
+  .help-card { padding: 26px 28px; max-width: 320px; }
+  .help-card h2 { font-size: 22px; }
+  .help-card dl { font-size: 13px; gap: 6px 16px; }
+
+  /* ================================================================ */
+  /*  Index page, phone                                                 */
+  /* ================================================================ */
+
+  body.index { overflow-x: hidden; }
+  .index-wrap { padding: 28px 18px 72px; }
+  .index-masthead {
+    grid-template-columns: 1fr;
+    gap: 14px;
+    padding-bottom: 22px;
+    margin-bottom: 30px;
+  }
+  .wordmark { font-size: 40px; letter-spacing: -0.02em; }
+  .masthead-meta { text-align: left; font-size: 10px; line-height: 1.8; }
+  .masthead-meta .chip { margin-left: 0; margin-right: 4px; }
+
+  section.group { margin-bottom: 38px; }
+  .group-head {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding-top: 14px;
+    margin-bottom: 12px;
+  }
+  .group-head h2 { font-size: 22px; letter-spacing: -0.01em; }
+  .group-head .group-count {
+    flex: 1 1 100%;
+    margin-left: 0;
+    font-size: 11px;
+  }
+  .group-head .rule { display: none; }
+
+  /* three-line card rows */
   .pair-row {
-    grid-template-columns: 40px 1fr 70px;
+    grid-template-columns: 1fr auto;
+    grid-template-rows: auto auto auto;
+    gap: 3px 12px;
+    padding: 14px 0 16px;
+  }
+  .pair-row .pair-n {
+    grid-column: 1;
+    grid-row: 1;
+    font-size: 10px;
+  }
+  .pair-row .pair-score {
+    grid-column: 2;
+    grid-row: 1;
+    font-size: 11px;
+  }
+  .pair-row .pair-query {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    display: block;
+  }
+  .pair-row .pair-query .title,
+  .pair-row .pair-candidate .title {
+    font-size: 14px;
+    line-height: 1.35;
+  }
+  .pair-row .pair-query .kind,
+  .pair-row .pair-candidate .kind {
+    font-size: 9px;
   }
   .pair-row .pair-candidate {
-    grid-column: 2;
-    grid-row: 2;
-    padding-top: 4px;
+    grid-column: 1 / -1;
+    grid-row: 3;
+    display: block;
+    position: relative;
+    padding-left: 18px;
+    margin-top: 2px;
+  }
+  .pair-row .pair-candidate::before {
+    content: "↳";
+    position: absolute;
+    left: 3px;
+    top: 0;
+    color: var(--ink-soft);
+    font-family: var(--serif);
   }
 }
 
@@ -1310,7 +1576,9 @@ def render_detail_html(
 
     q_num = pair["query_number"]
     c_num = pair["candidate_number"]
+    q_type = pair.get("query_type", "issue")
     c_type = pair.get("candidate_type", "issue")
+    q_kind_short = "PR" if q_type == "pull_request" else "Issue"
     c_kind_short = "PR" if c_type == "pull_request" else "Issue"
 
     position = f"{index + 1:04d}"
@@ -1466,7 +1734,21 @@ def render_detail_html(
     </div>
   </header>
 
-  <main class="split">
+  <main class="split" data-active="query">
+    <nav class="pane-tabs" role="tablist" aria-label="Pane switcher">
+      <button class="pane-tab active" type="button" data-pane="query"
+              role="tab" aria-selected="true">
+        <span class="mark">◆</span>
+        <span>Query</span>
+        <span class="ref">{q_kind_short} #{q_num}</span>
+      </button>
+      <button class="pane-tab" type="button" data-pane="candidate"
+              role="tab" aria-selected="false">
+        <span class="mark">◇</span>
+        <span>Candidate</span>
+        <span class="ref">{c_kind_short} #{c_num}</span>
+      </button>
+    </nav>
     {q_pane}
     {c_pane}
   </main>
@@ -1504,6 +1786,8 @@ def render_detail_html(
     <dl>
       <dt><kbd>j</kbd> / <kbd>↓</kbd> / <kbd>n</kbd></dt><dd>next pair</dd>
       <dt><kbd>k</kbd> / <kbd>↑</kbd> / <kbd>p</kbd></dt><dd>previous pair</dd>
+      <dt><kbd>1</kbd> / <kbd>←</kbd> / <kbd>h</kbd></dt><dd>show query pane</dd>
+      <dt><kbd>2</kbd> / <kbd>→</kbd> / <kbd>l</kbd></dt><dd>show candidate pane</dd>
       <dt><kbd>c</kbd></dt><dd>copy suggested comment</dd>
       <dt><kbd>r</kbd></dt><dd>toggle reasoning</dd>
       <dt><kbd>g</kbd> <kbd>i</kbd></dt><dd>go to index</dd>
@@ -1526,7 +1810,26 @@ def render_detail_html(
   const drawer = document.getElementById("drawer");
   const help = document.getElementById("help-overlay");
   const toast = document.getElementById("toast");
+  const split = document.querySelector(".split");
+  const tabs = document.querySelectorAll(".pane-tab");
   let gHeld = false;
+
+  function setPane(name) {{
+    if (!split) return;
+    split.dataset.active = name;
+    tabs.forEach(t => {{
+      const on = t.dataset.pane === name;
+      t.classList.toggle("active", on);
+      t.setAttribute("aria-selected", on ? "true" : "false");
+    }});
+    // Scroll the visible pane to top so we land at the start of the new content
+    const active = split.querySelector(".pane-" + name);
+    if (active) active.scrollTop = 0;
+  }}
+
+  tabs.forEach(t => {{
+    t.addEventListener("click", () => setPane(t.dataset.pane));
+  }});
 
   function showToast(msg) {{
     toast.textContent = msg;
@@ -1597,6 +1900,20 @@ def render_detail_html(
       case "g":
         gHeld = true;
         setTimeout(() => {{ gHeld = false; }}, 800);
+        break;
+      case "1":
+        setPane("query");
+        break;
+      case "2":
+        setPane("candidate");
+        break;
+      case "ArrowLeft":
+      case "h":
+        setPane("query");
+        break;
+      case "ArrowRight":
+      case "l":
+        setPane("candidate");
         break;
     }}
   }});
