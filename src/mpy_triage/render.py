@@ -1400,35 +1400,34 @@ STYLE_CSS = STYLE_CSS_TEMPLATE.replace(
 
 # --- templates -------------------------------------------------------------
 
-_HEAD_EXTERNAL_CSS = """\
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>__TITLE__</title>
-<link rel="stylesheet" href="/static/style.css">
-</head>
-"""
+def _build_head(
+    title: str,
+    inline_css: bool = False,
+    css_href: str = "/static/style.css",
+) -> str:
+    """Build the <head> block.
 
-_HEAD_INLINE_CSS = """\
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>__TITLE__</title>
-<style>__STYLE__</style>
-</head>
-"""
-
-
-def _build_head(title: str, inline_css: bool) -> str:
+    inline_css=True embeds the full stylesheet in a <style> tag.
+    Otherwise links to css_href.
+    """
+    escaped_title = _h(title)
     if inline_css:
-        return _HEAD_INLINE_CSS.replace("__TITLE__", title).replace(
-            "__STYLE__", STYLE_CSS
+        return (
+            "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n"
+            "<meta charset=\"utf-8\">\n"
+            "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
+            f"<title>{escaped_title}</title>\n"
+            f"<style>{STYLE_CSS}</style>\n"
+            "</head>\n"
         )
-    return _HEAD_EXTERNAL_CSS.replace("__TITLE__", title)
+    return (
+        "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n"
+        "<meta charset=\"utf-8\">\n"
+        "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
+        f"<title>{escaped_title}</title>\n"
+        f"<link rel=\"stylesheet\" href=\"{_h(css_href)}\">\n"
+        "</head>\n"
+    )
 
 
 def _group_titles() -> dict:
@@ -1452,10 +1451,17 @@ def _group_subtitles() -> dict:
     }
 
 
-def render_index_html(pairs: list[dict], inline_css: bool = False) -> str:
+def render_index_html(
+    pairs: list[dict],
+    inline_css: bool = False,
+    css_href: str = "/static/style.css",
+    pair_href_fmt: str = "/pair/{n}",
+) -> str:
     """Render the index page.
 
-    Set inline_css=True for a self-contained static export.
+    pair_href_fmt: format string for pair links; {n} is replaced with the
+    1-indexed pair number.  Use "/pair/{n}" for the live server and
+    "pair/{n}.html" for a static directory export.
     """
     sonnet_n = sum(1 for r in pairs if r.get("assessment_source") == "sonnet")
     qwen_n = sum(1 for r in pairs if r.get("assessment_source") == "qwen")
@@ -1496,7 +1502,7 @@ def render_index_html(pairs: list[dict], inline_css: bool = False) -> str:
             elif src == "qwen":
                 src_badge = '<span class="src-badge src-qwen" title="Qwen">Q</span>'
             rows.append(
-                f'<a class="pair-row" href="/pair/{n}">'
+                f'<a class="pair-row" href="{pair_href_fmt.format(n=n)}">'
                 f'<span class="pair-n">{n:04d}</span>'
                 f'<span class="pair-query">'
                 f'<span class="kind">Issue</span>'
@@ -1549,7 +1555,7 @@ def render_index_html(pairs: list[dict], inline_css: bool = False) -> str:
 </body>
 </html>
 """
-    head = _build_head("mpy-triage · index", inline_css)
+    head = _build_head("mpy-triage · index", inline_css, css_href=css_href)
     return head + body
 
 
@@ -1557,6 +1563,9 @@ def render_detail_html(
     conn: sqlite3.Connection,
     pairs: list[dict],
     index: int,
+    css_href: str = "/static/style.css",
+    index_href: str = "/",
+    pair_href_fmt: str = "/pair/{n}",
 ) -> str:
     """Render a single pair detail page. `index` is 0-based."""
     if not 0 <= index < len(pairs):
@@ -1682,16 +1691,14 @@ def render_detail_html(
         "candidate", c, c_comments, f"CANDIDATE · {c_kicker_kind}", c_url
     )
 
-    prev_attr = (
-        f'href="/pair/{prev_index + 1}"'
-        if prev_index is not None
-        else 'aria-disabled="true"'
+    prev_href = (
+        pair_href_fmt.format(n=prev_index + 1) if prev_index is not None else None
     )
-    next_attr = (
-        f'href="/pair/{next_index + 1}"'
-        if next_index is not None
-        else 'aria-disabled="true"'
+    next_href = (
+        pair_href_fmt.format(n=next_index + 1) if next_index is not None else None
     )
+    prev_attr = f'href="{prev_href}"' if prev_href else 'aria-disabled="true"'
+    next_attr = f'href="{next_href}"' if next_href else 'aria-disabled="true"'
 
     copy_btn = ""
     if suggested:
@@ -1720,7 +1727,7 @@ def render_detail_html(
 
   <header class="chrome">
     <div class="chrome-left">
-      <a class="back" href="/">← index</a>
+      <a class="back" href="{index_href}">← index</a>
       <span class="pair-id">#{q_num}<span class="arrow">↔</span>{c_kind_short} #{c_num}</span>
     </div>
     <div class="chrome-center">
@@ -1802,8 +1809,8 @@ def render_detail_html(
 
 <script>
 (function() {{
-  const prevUrl = {json.dumps(f"/pair/{prev_index + 1}" if prev_index is not None else None)};
-  const nextUrl = {json.dumps(f"/pair/{next_index + 1}" if next_index is not None else None)};
+  const prevUrl = {json.dumps(prev_href)};
+  const nextUrl = {json.dumps(next_href)};
   const suggested = {suggested_js};
   const copyBtn = document.getElementById("copy-btn");
   const reasoningBtn = document.getElementById("reasoning-btn");
@@ -1875,7 +1882,7 @@ def render_detail_html(
     if (e.key === "?") {{ toggleHelp(); e.preventDefault(); return; }}
 
     if (gHeld) {{
-      if (e.key === "i") {{ window.location.href = "/"; return; }}
+      if (e.key === "i") {{ window.location.href = {json.dumps(index_href)}; return; }}
       gHeld = false;
       return;
     }}
@@ -1922,5 +1929,5 @@ def render_detail_html(
 </body>
 </html>
 """
-    head = _build_head(f"mpy-triage · pair {index + 1}", inline_css=False)
+    head = _build_head(f"mpy-triage · pair {index + 1}", css_href=css_href)
     return head + body

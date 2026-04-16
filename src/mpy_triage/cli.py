@@ -426,6 +426,72 @@ def export_cmd(ctx, fmt, output):
     conn.close()
 
 
+@main.command("export-html")
+@click.option("-d", "--dir", "out_dir", required=True, type=click.Path(),
+              help="Output directory for the static site tree.")
+@click.pass_context
+def export_html_cmd(ctx, out_dir):
+    """Export the full workbench as a static HTML directory.
+
+    Creates index.html, style.css, and pair/N.html for every pair.
+    All links are relative so the tree can be served from any web
+    server, opened from the filesystem, or zipped for sharing.
+    """
+    import os
+
+    from .db import get_connection, init_db
+    from .export import _fetch_scan_results
+    from .render import (
+        STYLE_CSS,
+        render_detail_html,
+        render_index_html,
+        sort_pairs,
+    )
+
+    config = _get_config_with_db(ctx)
+    conn = get_connection(config.db_path)
+    init_db(conn, config.schema_path)
+
+    pairs = _fetch_scan_results(conn)
+    sort_pairs(pairs)
+
+    os.makedirs(out_dir, exist_ok=True)
+    pair_dir = os.path.join(out_dir, "pair")
+    os.makedirs(pair_dir, exist_ok=True)
+
+    # Write CSS
+    css_path = os.path.join(out_dir, "style.css")
+    with open(css_path, "w") as f:
+        f.write(STYLE_CSS)
+
+    # Write index (links point to pair/N.html, CSS at ./style.css)
+    index_html = render_index_html(
+        pairs,
+        css_href="style.css",
+        pair_href_fmt="pair/{n}.html",
+    )
+    with open(os.path.join(out_dir, "index.html"), "w") as f:
+        f.write(index_html)
+
+    # Write each pair detail page
+    total = len(pairs)
+    click.echo(f"Exporting {total} pairs to {out_dir}/")
+    for i in range(total):
+        html = render_detail_html(
+            conn, pairs, i,
+            css_href="../style.css",
+            index_href="../index.html",
+            pair_href_fmt="{n}.html",
+        )
+        with open(os.path.join(pair_dir, f"{i + 1}.html"), "w") as f:
+            f.write(html)
+        if (i + 1) % 500 == 0 or i + 1 == total:
+            click.echo(f"  {i + 1}/{total} pairs written")
+
+    conn.close()
+    click.echo(f"Done. Open {out_dir}/index.html in a browser.")
+
+
 def _resolve_display_hostname() -> str:
     """Return a shareable hostname for the serve URL.
 
