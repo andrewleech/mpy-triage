@@ -394,6 +394,83 @@ def scan(ctx, repo, min_score, top_k, skip_rerank, reranker_model, top_n, output
     conn.close()
 
 
+@main.command("refresh-status")
+@click.pass_context
+def refresh_status(ctx):
+    """Refresh issue/PR state from GitHub for actionable scan pairs.
+
+    Checks the current open/closed state of query issues in DUPLICATE and
+    LIKELY_DUPLICATE pairs. Only fetches the ~350 relevant issues rather
+    than a full sync of all 14k+ items.
+    """
+    from .db import get_connection, init_db
+    from .gh import gh_api
+
+    config = _get_config_with_db(ctx)
+    conn = get_connection(config.db_path)
+    init_db(conn, config.schema_path)
+
+    # Find distinct query issues in actionable pairs (using best classification)
+    rows = conn.execute("""
+        SELECT DISTINCT sr.query_number, sr.query_type, sr.query_repo
+        FROM scan_results sr
+        LEFT JOIN scan_assessments_sonnet ss
+            ON ss.query_number = sr.query_number
+            AND ss.query_repo = sr.query_repo
+            AND ss.candidate_number = sr.candidate_number
+            AND ss.candidate_repo = sr.candidate_repo
+        LEFT JOIN scan_assessments sa
+            ON sa.query_number = sr.query_number
+            AND sa.query_repo = sr.query_repo
+            AND sa.candidate_number = sr.candidate_number
+            AND sa.candidate_repo = sr.candidate_repo
+        WHERE COALESCE(ss.classification, sa.classification)
+              IN ('DUPLICATE', 'LIKELY_DUPLICATE')
+    """).fetchall()
+
+    click.echo(f"Checking {len(rows)} issues on GitHub...")
+    updated = 0
+    closed = 0
+
+    for i, row in enumerate(rows):
+        number, item_type, repo = row[0], row[1], row[2]
+        table = "pull_requests" if item_type == "pull_request" else "issues"
+        kind = "pulls" if item_type == "pull_request" else "issues"
+
+        data = gh_api(f"repos/{repo}/{kind}/{number}")
+        if not isinstance(data, dict):
+            continue
+
+        new_state = data.get("state", "unknown")
+        old_row = conn.execute(
+            f"SELECT state FROM {table} WHERE number = ? AND repo = ?",
+            (number, repo),
+        ).fetchone()
+        old_state = old_row[0] if old_row else None
+
+        if new_state != old_state:
+            conn.execute(
+                f"UPDATE {table} SET state = ?, updated_at = ? "
+                f"WHERE number = ? AND repo = ?",
+                (new_state, data.get("updated_at"), number, repo),
+            )
+            updated += 1
+            if new_state == "closed":
+                closed += 1
+                click.echo(f"  #{number} ({repo}): {old_state} → {new_state}")
+
+        if (i + 1) % 50 == 0:
+            conn.commit()
+            click.echo(f"  {i + 1}/{len(rows)} checked...")
+
+    conn.commit()
+    conn.close()
+    click.echo(
+        f"Done. {updated} state changes ({closed} newly closed) "
+        f"out of {len(rows)} checked."
+    )
+
+
 @main.command("export")
 @click.option("--format", "fmt",
               type=click.Choice(["csv", "markdown", "html"]), default="markdown")

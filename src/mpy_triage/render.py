@@ -452,6 +452,30 @@ section.group { margin-bottom: 56px; }
 .pair-row:hover .pair-n {
   color: var(--accent);
 }
+.pair-row.done {
+  opacity: 0.45;
+}
+.pair-row.done .pair-query .title,
+.pair-row.done .pair-candidate .title {
+  text-decoration: line-through;
+  text-decoration-color: var(--ink-soft);
+}
+.pair-row.done:hover { opacity: 0.7; }
+.done-badge {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 1px 6px;
+  background: #d7e8d2;
+  color: #1a3f18;
+  border-radius: 10px;
+  margin-left: 8px;
+  vertical-align: middle;
+  text-decoration: none;
+}
 .pair-row .pair-n {
   font-family: var(--mono);
   font-size: 11px;
@@ -1477,6 +1501,15 @@ def render_index_html(
     qwen_n = sum(1 for r in pairs if r.get("assessment_source") == "qwen")
     unique_issues = len({r["query_number"] for r in pairs})
 
+    # Count closed query issues in actionable pairs for progress
+    actionable = [
+        r for r in pairs
+        if r.get("classification") in ("DUPLICATE", "LIKELY_DUPLICATE")
+    ]
+    closed_actionable = sum(
+        1 for r in actionable if r.get("query_state") == "closed"
+    )
+
     # Group by classification
     groups: dict[str, list[tuple[int, dict]]] = {}
     for idx, r in enumerate(pairs):
@@ -1501,6 +1534,7 @@ def render_index_html(
             n = idx + 1  # 1-indexed
             q_num = r["query_number"]
             q_title = _h(r.get("query_title", ""))
+            q_state = r.get("query_state", "open")
             c_num = r["candidate_number"]
             c_title = _h(r.get("candidate_title", ""))
             c_kind = "PR" if r.get("candidate_type") == "pull_request" else "Issue"
@@ -1511,13 +1545,17 @@ def render_index_html(
                 src_badge = '<span class="src-badge src-sonnet" title="Sonnet">S</span>'
             elif src == "qwen":
                 src_badge = '<span class="src-badge src-qwen" title="Qwen">Q</span>'
+            done_cls = " done" if q_state == "closed" else ""
+            done_tag = (
+                ' <span class="done-badge">closed</span>' if q_state == "closed" else ""
+            )
             rows.append(
-                f'<a class="pair-row" href="{pair_href_fmt.format(n=n)}">'
+                f'<a class="pair-row{done_cls}" href="{pair_href_fmt.format(n=n)}">'
                 f'<span class="pair-n">{n:04d}</span>'
                 f'<span class="pair-query">'
                 f'<span class="kind">Issue</span>'
                 f'<span class="num">#{q_num}</span>'
-                f'<span class="title">{q_title}</span></span>'
+                f'<span class="title">{q_title}</span>{done_tag}</span>'
                 f'<span class="pair-candidate">'
                 f'<span class="kind">{c_kind}</span>'
                 f'<span class="num">#{c_num}</span>'
@@ -1557,6 +1595,9 @@ def render_index_html(
         likely <b>{group_counts.get("LIKELY_DUPLICATE", 0)}</b> ·
         rel <b>{group_counts.get("RELATED", 0)}</b> ·
         off <b>{group_counts.get("OFF_TOPIC", 0)}</b>
+      </div>
+      <div>
+        progress: <b>{closed_actionable}</b> / <b>{len(actionable)}</b> actionable issues closed
       </div>
     </div>
   </header>

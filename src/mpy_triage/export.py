@@ -47,12 +47,15 @@ def _fetch_scan_results(
         # Check for Sonnet assessment in scan_assessments if it exists
         assessment = _get_assessment(conn, q_num, q_type, q_repo, c_num, c_type, c_repo)
 
+        q_state = _get_state(conn, q_num, q_type, q_repo)
+
         results.append({
             "query_number": q_num,
             "query_type": q_type,
             "query_repo": q_repo,
             "query_title": q_title,
             "query_url": github_url(q_repo, q_type, q_num),
+            "query_state": q_state,
             "candidate_number": c_num,
             "candidate_type": c_type,
             "candidate_repo": c_repo,
@@ -72,6 +75,15 @@ def _fetch_scan_results(
         results = [r for r in results if r["classification"] != "UNRELATED"]
 
     return results
+
+
+def _get_state(conn: sqlite3.Connection, number: int, item_type: str, repo: str) -> str:
+    table = "pull_requests" if item_type == "pull_request" else "issues"
+    row = conn.execute(
+        f"SELECT state FROM {table} WHERE number = ? AND repo = ?",
+        (number, repo),
+    ).fetchone()
+    return row[0] if row else "unknown"
 
 
 def _get_title(conn: sqlite3.Connection, number: int, item_type: str, repo: str) -> str:
