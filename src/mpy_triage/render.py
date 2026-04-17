@@ -191,20 +191,30 @@ def sort_pairs(results: list[dict]) -> list[dict]:
     return results
 
 
+_REOPEN_LINE = "\n\nPlease re-open if you find this issue is still relevant."
+
+
 def suggested_comment(pair: dict) -> str | None:
     """Return the maintainer comment string for this pair, or None."""
     cls = pair.get("classification", "")
     c_num = pair["candidate_number"]
     c_type = pair["candidate_type"]
-    kind = "PR" if c_type == "pull_request" else "issue"
     if cls == "DUPLICATE":
-        return f"Closing as duplicate of {kind} #{c_num}."
+        if c_type == "pull_request":
+            return f"Closing as implemented by #{c_num}.{_REOPEN_LINE}"
+        return f"Closing as duplicate of #{c_num}.{_REOPEN_LINE}"
     if cls == "LIKELY_DUPLICATE":
+        if c_type == "pull_request":
+            return (
+                f"This looks like it may have been implemented by #{c_num}"
+                f" — can someone confirm?{_REOPEN_LINE}"
+            )
         return (
-            f"This may be a duplicate of {kind} #{c_num} — can someone confirm?"
+            f"This may be a duplicate of #{c_num}"
+            f" — can someone confirm?{_REOPEN_LINE}"
         )
     if cls == "RELATED":
-        return f"Related to {kind} #{c_num}."
+        return f"Related to #{c_num}."
     return None
 
 
