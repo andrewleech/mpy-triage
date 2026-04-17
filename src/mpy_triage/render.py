@@ -454,13 +454,13 @@ section.group { margin-bottom: 56px; }
 }
 .pair-row.done {
   opacity: 0.45;
-}
-.pair-row.done .pair-query .title,
-.pair-row.done .pair-candidate .title {
   text-decoration: line-through;
   text-decoration-color: var(--ink-soft);
 }
-.pair-row.done:hover { opacity: 0.7; }
+.pair-row.done:hover {
+  opacity: 0.7;
+  text-decoration: line-through;
+}
 .done-badge {
   display: inline-block;
   font-family: var(--mono);
