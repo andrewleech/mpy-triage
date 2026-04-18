@@ -356,9 +356,9 @@ body.cls-UNRELATED        { --accent: var(--unrel);   --accent-soft: var(--unrel
   color: var(--ink);
 }
 .wordmark em {
-  font-style: italic;
-  font-variation-settings: "opsz" 144, "SOFT" 100;
-  color: var(--ink-mute);
+  font-style: normal;
+  color: var(--ink-soft);
+  padding: 0 0.04em;
 }
 
 .masthead-meta {
@@ -1582,7 +1582,7 @@ def render_index_html(
 <body class="index">
 <div class="index-wrap">
   <header class="index-masthead">
-    <div class="wordmark">mpy<em>·</em>triage</div>
+    <div class="wordmark">mpy<em>-</em>triage</div>
     <div class="masthead-meta">
       <div><b>{len(pairs)}</b> pairs · <b>{unique_issues}</b> open issues</div>
       <div>
