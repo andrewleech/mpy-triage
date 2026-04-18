@@ -4,6 +4,7 @@ Provides markdown rendering, pair detail data fetching, and templates for
 the index and pair-detail pages served by the `serve` command.
 """
 
+import hashlib
 import html
 import json
 import sqlite3
@@ -1431,6 +1432,8 @@ STYLE_CSS = STYLE_CSS_TEMPLATE.replace(
     "__FONT_IMPORT__", _FONT_IMPORT
 ).replace("__GRAIN_SVG__", _GRAIN_SVG)
 
+STYLE_CSS_HASH = hashlib.md5(STYLE_CSS.encode()).hexdigest()[:8]
+
 
 # --- templates -------------------------------------------------------------
 
@@ -1454,12 +1457,13 @@ def _build_head(
             f"<style>{STYLE_CSS}</style>\n"
             "</head>\n"
         )
+    versioned_href = f"{_h(css_href)}?v={STYLE_CSS_HASH}"
     return (
         "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n"
         "<meta charset=\"utf-8\">\n"
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
         f"<title>{escaped_title}</title>\n"
-        f"<link rel=\"stylesheet\" href=\"{_h(css_href)}\">\n"
+        f"<link rel=\"stylesheet\" href=\"{versioned_href}\">\n"
         "</head>\n"
     )
 
