@@ -452,14 +452,14 @@ section.group { margin-bottom: 56px; }
 .pair-row:hover .pair-n {
   color: var(--accent);
 }
-.pair-row.done {
+a.pair-row.done {
   opacity: 0.45;
-  text-decoration: line-through;
-  text-decoration-color: var(--ink-soft);
+  text-decoration: line-through !important;
+  text-decoration-color: var(--ink-soft) !important;
 }
-.pair-row.done:hover {
+a.pair-row.done:hover {
   opacity: 0.7;
-  text-decoration: line-through;
+  text-decoration: line-through !important;
 }
 .done-badge {
   display: inline-block;
