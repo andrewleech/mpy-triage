@@ -6,128 +6,135 @@ import logging
 import sqlite3
 
 from .format import github_url
+from .render import _CLASSIFICATION_ORDER, sort_pairs  # noqa: F401 re-export
 
 logger = logging.getLogger(__name__)
 
-_CLASSIFICATION_ORDER = {
-    "DUPLICATE": 0,
-    "LIKELY_DUPLICATE": 1,
-    "RELATED": 2,
-    "OFF_TOPIC": 3,
-    "UNRELATED": 4,
-    "": 5,
-}
+
+def _has_table(conn: sqlite3.Connection, name: str) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)
+    ).fetchone()
+    return row is not None
 
 
 def _fetch_scan_results(
     conn: sqlite3.Connection, exclude_unrelated: bool = True
 ) -> list[dict]:
-    """Fetch scan results with titles and assessment data.
+    """Fetch scan results with titles and assessment data in a single query.
 
-    By default, filters out UNRELATED classifications since they represent
-    search false positives with no actionable value.
+    Joins scan_results with issues/pull_requests for titles and state,
+    and with the assessment tables (preferring Sonnet over Qwen).
     """
-    rows = conn.execute("""
-        SELECT sr.query_number, sr.query_type, sr.query_repo,
-               sr.candidate_number, sr.candidate_type, sr.candidate_repo,
-               sr.candidate_state, sr.rerank_score, sr.value_score
+    has_sonnet = _has_table(conn, "scan_assessments_sonnet")
+
+    # Build a single query that joins everything we need.
+    # Query-side title/state comes from a UNION of issues + pull_requests
+    # keyed by (number, type, repo). Same for the candidate side.
+    sql = """
+        SELECT
+            sr.query_number, sr.query_type, sr.query_repo,
+            sr.candidate_number, sr.candidate_type, sr.candidate_repo,
+            sr.candidate_state, sr.rerank_score, sr.value_score,
+            qi.title  AS q_title,
+            qi.state  AS q_state,
+            ci.title  AS c_title,
+    """
+    if has_sonnet:
+        sql += """
+            COALESCE(ss.classification, sa.classification) AS classification,
+            COALESCE(ss.confidence,     sa.confidence)     AS confidence,
+            COALESCE(ss.reasoning,      sa.reasoning)      AS reasoning,
+            COALESCE(ss.suggested_action, sa.suggested_action) AS suggested_action,
+            CASE WHEN ss.classification IS NOT NULL THEN 'sonnet'
+                 WHEN sa.classification IS NOT NULL THEN 'qwen'
+                 ELSE '' END AS assessment_source
+        """
+    else:
+        sql += """
+            sa.classification,
+            sa.confidence,
+            sa.reasoning,
+            sa.suggested_action,
+            CASE WHEN sa.classification IS NOT NULL THEN 'qwen'
+                 ELSE '' END AS assessment_source
+        """
+    sql += """
         FROM scan_results sr
-        ORDER BY sr.value_score DESC
-    """).fetchall()
+        -- query item title + state
+        LEFT JOIN (
+            SELECT number, 'issue' AS item_type, repo, title, state
+              FROM issues
+            UNION ALL
+            SELECT number, 'pull_request' AS item_type, repo, title, state
+              FROM pull_requests
+        ) qi ON qi.number = sr.query_number
+            AND qi.item_type = sr.query_type
+            AND qi.repo = sr.query_repo
+        -- candidate item title
+        LEFT JOIN (
+            SELECT number, 'issue' AS item_type, repo, title, state
+              FROM issues
+            UNION ALL
+            SELECT number, 'pull_request' AS item_type, repo, title, state
+              FROM pull_requests
+        ) ci ON ci.number = sr.candidate_number
+            AND ci.item_type = sr.candidate_type
+            AND ci.repo = sr.candidate_repo
+        -- Qwen assessment (always present)
+        LEFT JOIN scan_assessments sa
+            ON sa.query_number = sr.query_number
+            AND sa.query_type = sr.query_type
+            AND sa.query_repo = sr.query_repo
+            AND sa.candidate_number = sr.candidate_number
+            AND sa.candidate_type = sr.candidate_type
+            AND sa.candidate_repo = sr.candidate_repo
+    """
+    if has_sonnet:
+        sql += """
+        -- Sonnet assessment (preferred when present)
+        LEFT JOIN scan_assessments_sonnet ss
+            ON ss.query_number = sr.query_number
+            AND ss.query_type = sr.query_type
+            AND ss.query_repo = sr.query_repo
+            AND ss.candidate_number = sr.candidate_number
+            AND ss.candidate_type = sr.candidate_type
+            AND ss.candidate_repo = sr.candidate_repo
+        """
+    sql += "ORDER BY sr.value_score DESC"
+
+    rows = conn.execute(sql).fetchall()
 
     results = []
     for r in rows:
-        q_num, q_type, q_repo = r[0], r[1], r[2]
-        c_num, c_type, c_repo = r[3], r[4], r[5]
-
-        # Fetch titles
-        q_title = _get_title(conn, q_num, q_type, q_repo)
-        c_title = _get_title(conn, c_num, c_type, c_repo)
-
-        # Check for Sonnet assessment in scan_assessments if it exists
-        assessment = _get_assessment(conn, q_num, q_type, q_repo, c_num, c_type, c_repo)
-
-        q_state = _get_state(conn, q_num, q_type, q_repo)
-
+        cls = r["classification"] or ""
+        if exclude_unrelated and cls == "UNRELATED":
+            continue
         results.append({
-            "query_number": q_num,
-            "query_type": q_type,
-            "query_repo": q_repo,
-            "query_title": q_title,
-            "query_url": github_url(q_repo, q_type, q_num),
-            "query_state": q_state,
-            "candidate_number": c_num,
-            "candidate_type": c_type,
-            "candidate_repo": c_repo,
-            "candidate_title": c_title,
-            "candidate_url": github_url(c_repo, c_type, c_num),
-            "candidate_state": r[6],
-            "rerank_score": r[7],
-            "value_score": r[8],
-            "classification": assessment.get("classification", ""),
-            "confidence": assessment.get("confidence", ""),
-            "reasoning": assessment.get("reasoning", ""),
-            "suggested_action": assessment.get("suggested_action", ""),
-            "assessment_source": assessment.get("assessment_source", ""),
+            "query_number": r["query_number"],
+            "query_type": r["query_type"],
+            "query_repo": r["query_repo"],
+            "query_title": r["q_title"] or "",
+            "query_url": github_url(r["query_repo"], r["query_type"], r["query_number"]),
+            "query_state": r["q_state"] or "unknown",
+            "candidate_number": r["candidate_number"],
+            "candidate_type": r["candidate_type"],
+            "candidate_repo": r["candidate_repo"],
+            "candidate_title": r["c_title"] or "",
+            "candidate_url": github_url(
+                r["candidate_repo"], r["candidate_type"], r["candidate_number"]
+            ),
+            "candidate_state": r["candidate_state"] or "",
+            "rerank_score": r["rerank_score"],
+            "value_score": r["value_score"],
+            "classification": cls,
+            "confidence": r["confidence"] or "",
+            "reasoning": r["reasoning"] or "",
+            "suggested_action": r["suggested_action"] or "",
+            "assessment_source": r["assessment_source"] or "",
         })
 
-    if exclude_unrelated:
-        results = [r for r in results if r["classification"] != "UNRELATED"]
-
     return results
-
-
-def _get_state(conn: sqlite3.Connection, number: int, item_type: str, repo: str) -> str:
-    table = "pull_requests" if item_type == "pull_request" else "issues"
-    row = conn.execute(
-        f"SELECT state FROM {table} WHERE number = ? AND repo = ?",
-        (number, repo),
-    ).fetchone()
-    return row[0] if row else "unknown"
-
-
-def _get_title(conn: sqlite3.Connection, number: int, item_type: str, repo: str) -> str:
-    table = "pull_requests" if item_type == "pull_request" else "issues"
-    row = conn.execute(
-        f"SELECT title FROM {table} WHERE number = ? AND repo = ?",
-        (number, repo),
-    ).fetchone()
-    return row[0] if row else ""
-
-
-def _get_assessment(
-    conn: sqlite3.Connection,
-    q_num: int, q_type: str, q_repo: str,
-    c_num: int, c_type: str, c_repo: str,
-) -> dict:
-    """Fetch assessment for a scan result pair, preferring Sonnet over Qwen."""
-    key = (q_num, q_type, q_repo, c_num, c_type, c_repo)
-    where = (
-        "WHERE query_number=? AND query_type=? AND query_repo=? "
-        "AND candidate_number=? AND candidate_type=? AND candidate_repo=?"
-    )
-    # Prefer Sonnet validation if available, fall back to Qwen first-pass
-    for table, source in [
-        ("scan_assessments_sonnet", "sonnet"),
-        ("scan_assessments", "qwen"),
-    ]:
-        try:
-            row = conn.execute(
-                f"SELECT classification, confidence, reasoning, suggested_action "
-                f"FROM {table} {where}",
-                key,
-            ).fetchone()
-            if row:
-                return {
-                    "classification": row[0],
-                    "confidence": row[1],
-                    "reasoning": row[2],
-                    "suggested_action": row[3],
-                    "assessment_source": source,
-                }
-        except sqlite3.OperationalError:
-            pass  # Table doesn't exist yet
-    return {}
 
 
 def export_csv(conn: sqlite3.Connection) -> str:
@@ -136,10 +143,7 @@ def export_csv(conn: sqlite3.Connection) -> str:
     if not results:
         return ""
 
-    results.sort(key=lambda r: (
-        _CLASSIFICATION_ORDER.get(r["classification"], 5),
-        -r["value_score"],
-    ))
+    sort_pairs(results)
 
     output = io.StringIO()
     fields = [
